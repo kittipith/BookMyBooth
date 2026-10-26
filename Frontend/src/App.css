@@ -1,0 +1,344 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-paper: rgb(var(--c-paper));
+  --color-surface: rgb(var(--c-surface));
+  --color-ink: rgb(var(--c-ink));
+  --color-muted: rgb(var(--c-muted));
+  --color-line: rgb(var(--c-line));
+  --color-mist: rgb(var(--c-mist));
+  --color-cobalt: rgb(var(--c-cobalt));
+  --color-oncobalt: rgb(var(--c-oncobalt));
+  --color-sun: rgb(var(--c-sun));
+  --color-onsun: rgb(var(--c-onsun));
+  --color-danger: rgb(var(--c-danger));
+  --font-body: Anuphan, system-ui, sans-serif;
+  --font-display: "Chakra Petch", Anuphan, system-ui, sans-serif;
+}
+
+@layer base {
+  :root {
+    --c-paper: 255 255 255;
+    --c-surface: 255 255 255;
+    --c-ink: 16 28 64;
+    --c-muted: 96 106 136;
+    --c-line: 226 230 241;
+    --c-mist: 242 245 252;
+    --c-cobalt: 31 63 209;
+    --c-oncobalt: 255 255 255;
+    --c-sun: 255 205 41;
+    --c-onsun: 16 28 64;
+    --c-danger: 205 45 58;
+    color-scheme: light;
+  }
+  *,
+  ::after,
+  ::before,
+  ::backdrop {
+    border-color: rgb(var(--c-line));
+  }
+  body {
+    font-family: var(--font-body);
+    background: rgb(var(--c-paper));
+    color: rgb(var(--c-ink));
+    -webkit-font-smoothing: antialiased;
+  }
+  button:not(:disabled),
+  [role="button"],
+  label:has(input[type="checkbox"]:not(:disabled)) {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 2.5px solid rgb(var(--c-cobalt));
+    outline-offset: 2px;
+  }
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"] {
+    accent-color: rgb(var(--c-cobalt));
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer components {
+  .stamp { box-shadow: 4px 4px 0 rgb(var(--c-sun)); }
+  .press:active { transform: translateY(1px); }
+
+  .chip[aria-pressed="true"] {
+    background: rgb(var(--c-cobalt));
+    color: rgb(var(--c-oncobalt));
+    border-color: rgb(var(--c-cobalt));
+  }
+
+  .fld {
+    background: rgb(var(--c-surface));
+    border: 1px solid rgb(var(--c-line));
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    outline: none;
+    width: 100%;
+  }
+  .fld:focus { border-color: rgb(var(--c-cobalt)); }
+
+  /* ผังงานตามที่ผู้จัดงานวาด (ใช้ทั้งฝั่งผู้ขายและผู้จัดงาน) */
+  .lgrid { display: grid; gap: 3px; margin-inline: auto; }
+  .lgrid.mini { gap: 2px; }
+  .lgrid > * { min-width: 0; min-height: 0; }
+  /* ช่องล็อก: ตัวล็อกกว้าง × ลึกตามขนาดจริงเทียบกับช่อง อยู่กลางช่อง */
+  .lg-slot { display: grid; place-items: center; }
+  .lg-fit { display: grid; width: 100%; height: 100%; }
+  .lg-fit > * { width: 100%; height: 100%; min-width: 0; }
+  .lg-walk { background: rgb(var(--c-mist) / 0.55); border-radius: 3px; }
+  .lg-stage, .lg-gate {
+    display: grid; place-items: center; border-radius: 4px;
+    font: 600 0.72rem "Chakra Petch", sans-serif; letter-spacing: 0.04em; overflow: hidden;
+  }
+  .lg-stage { background: rgb(var(--c-muted)); color: rgb(var(--c-paper)); }
+  .lg-gate { border: 1.5px solid rgb(var(--c-cobalt) / 0.45); color: rgb(var(--c-cobalt)); }
+
+  .lot {
+    border-radius: 6px; font: 600 0.62rem "Chakra Petch", sans-serif; padding: 0;
+    transition: background-color 0.12s, transform 0.12s;
+    border: 1.5px solid rgb(var(--c-cobalt) / 0.35); background: rgb(var(--c-surface)); color: rgb(var(--c-cobalt));
+  }
+  .lot[data-s="free"]:hover { background: rgb(var(--c-cobalt) / 0.12); }
+  .lot[data-s="pending"] { background: rgb(var(--c-sun)); color: rgb(var(--c-onsun)); border-color: rgb(var(--c-sun)); cursor: not-allowed; }
+  .lot[data-s="booked"] { background: rgb(var(--c-line)); color: rgb(var(--c-muted)); border-color: rgb(var(--c-line)); text-decoration: line-through; cursor: not-allowed; }
+  .lot[data-s="disabled"] {
+    background: repeating-linear-gradient(135deg, rgb(var(--c-mist)) 0 4px, rgb(var(--c-line)) 4px 8px);
+    color: rgb(var(--c-muted)); border-color: rgb(var(--c-line)); cursor: not-allowed;
+  }
+  .lot[data-s="sel"] {
+    background: rgb(var(--c-cobalt)); color: rgb(var(--c-oncobalt)); border-color: rgb(var(--c-cobalt));
+    box-shadow: 3px 3px 0 rgb(var(--c-sun)); transform: translate(-1px, -1px);
+  }
+  .lgrid.mini .lot { border-radius: 3px; border-width: 1.25px; }
+
+  .swatch { display: inline-block; width: 0.875rem; height: 0.875rem; border-radius: 3px; }
+  .lot.swatch { box-shadow: none; transform: none; cursor: default; }
+
+  /* ตั๋ว */
+  .ticket { position: relative; overflow: hidden; }
+  .stub { position: relative; }
+  .stub::before,
+  .stub::after {
+    content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    background: rgb(var(--c-paper)); border: 1px solid rgb(var(--c-line));
+  }
+  .stub::before { top: -10px; left: -10px; }
+  .stub::after { top: -10px; right: -10px; }
+  @media (min-width: 640px) {
+    .stub::after { top: auto; right: auto; bottom: -10px; left: -10px; }
+  }
+
+  /* ตัววาดผัง */
+  /* ช่องยืดตามพื้นที่ แต่ใหญ่สุดไม่เกิน --cell-max ผังที่คอลัมน์น้อยจึงไม่กว้างเต็มจอ และอยู่กลางกรอบเสมอ */
+  .canvas {
+    --cell-max: 4.5rem;
+    display: grid; gap: 3px; margin-inline: auto;
+    touch-action: none; user-select: none;
+  }
+  .cell {
+    min-height: 0; border-radius: 4px; border: 1px dashed rgb(var(--c-line));
+    display: grid; place-items: center; font: 600 0.62rem "Chakra Petch", sans-serif; cursor: crosshair;
+  }
+  .cell:hover { border-color: rgb(var(--c-ink) / 0.6); }
+  /* สีโซน 15 สี (ชื่อ zc- เพื่อไม่ชนกับ z-index ของ Tailwind) */
+  .zc-0 { background: rgb(var(--c-cobalt)); color: rgb(var(--c-oncobalt)); border: 0; }
+  .zc-1 { background: rgb(var(--c-sun)); color: rgb(var(--c-onsun)); border: 0; }
+  .zc-2 { background: rgb(var(--c-ink)); color: rgb(255 255 255); border: 0; }
+  .zc-3 { background: rgb(var(--c-surface)); color: rgb(var(--c-cobalt)); border: 2px solid rgb(var(--c-cobalt)); }
+  .zc-4 { background: rgb(var(--c-danger)); color: rgb(255 255 255); border: 0; }
+  .zc-5 { background: rgb(var(--c-surface)); color: rgb(var(--c-ink)); border: 2px solid rgb(var(--c-ink)); }
+  .zc-6 { background: rgb(15 118 110); color: rgb(255 255 255); border: 0; }
+  .zc-7 { background: rgb(21 128 61); color: rgb(255 255 255); border: 0; }
+  .zc-8 { background: rgb(124 58 237); color: rgb(255 255 255); border: 0; }
+  .zc-9 { background: rgb(234 88 12); color: rgb(255 255 255); border: 0; }
+  .zc-10 { background: rgb(219 39 119); color: rgb(255 255 255); border: 0; }
+  .zc-11 { background: rgb(146 64 14); color: rgb(255 255 255); border: 0; }
+  .zc-12 { background: rgb(2 132 199); color: rgb(255 255 255); border: 0; }
+  .zc-13 { background: rgb(var(--c-surface)); color: rgb(124 58 237); border: 2px solid rgb(124 58 237); }
+  .zc-14 { background: rgb(var(--c-surface)); color: rgb(21 128 61); border: 2px solid rgb(21 128 61); }
+  .t-walk { background: rgb(var(--c-mist)); border: 0; }
+  .t-stage { background: rgb(var(--c-muted)); color: rgb(var(--c-paper)); border: 0; }
+  .t-gate { background: transparent; border: 2px solid rgb(var(--c-ink)); color: rgb(var(--c-ink)); }
+  /* ช่องล็อก: พื้นโปร่ง ตัวล็อกเป็นสี่เหลี่ยมตามสัดส่วนขนาดจริงอยู่กลางช่อง */
+  .cell.is-lot { position: relative; border: 0; }
+  /* พื้นที่ที่ล็อกจองไว้ (เช่น 3×3 ม. จองไว้ 2×2 ช่อง) ส่วนที่เกินตัวล็อกแสดงเป็นเส้นประจางๆ */
+  .cell.is-lot::before { content: ""; position: absolute; inset: 0; border-radius: 4px; border: 1px dashed rgb(var(--c-line)); }
+  .lot-shape {
+    position: absolute; inset: 0; margin: auto; border-radius: 4px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; overflow: hidden;
+  }
+  .lot-shape .dim { font-size: 0.5rem; font-weight: 500; opacity: 0.85; margin-top: 1px; }
+  .cell.is-sized { position: relative; }
+  .cell.is-sized::after {
+    content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%;
+    background: rgb(var(--c-sun)); box-shadow: 0 0 0 1px rgb(var(--c-ink) / 0.35);
+  }
+  .cell.is-conflict .lot-shape { outline: 2px solid rgb(var(--c-danger)); outline-offset: 1px; }
+  .cell.is-off .lot-shape { background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.55) 0 3px, transparent 3px 6px); opacity: 0.6; }
+  .tool[aria-pressed="true"] { outline: 2.5px solid rgb(var(--c-cobalt)); outline-offset: 2px; }
+
+  /* ผังย่อในลิ้นชักรายละเอียดการจอง */
+  .fmap .lg-stage, .fmap .lg-gate { font-size: 0.58rem; }
+  .lgrid .fl { height: 100%; }
+  .fl {
+    position: relative; height: 1.55rem; border-radius: 4px; display: grid; place-items: center;
+    font: 600 0.58rem "Chakra Petch", sans-serif; border: 1.25px solid rgb(var(--c-cobalt) / 0.3);
+    background: rgb(var(--c-surface)); color: rgb(var(--c-cobalt) / 0.75);
+  }
+  .fl[data-s="booked"] { background: rgb(var(--c-mist)); color: rgb(var(--c-muted) / 0.8); border-color: rgb(var(--c-mist)); }
+  .fl[data-s="disabled"] { background: repeating-linear-gradient(135deg, rgb(var(--c-mist)) 0 3px, rgb(var(--c-line)) 3px 6px); color: rgb(var(--c-muted)); border-color: rgb(var(--c-line)); }
+  .fl[data-s="pending"] { background: rgb(var(--c-sun) / 0.45); color: rgb(var(--c-onsun)); border-color: transparent; }
+  .fl[data-s="target"] {
+    z-index: 1; background: rgb(var(--c-cobalt)); color: rgb(var(--c-oncobalt)); border-color: rgb(var(--c-cobalt));
+    font-size: 0.66rem; box-shadow: 2px 2px 0 rgb(var(--c-sun)); transform: scale(1.14);
+  }
+  .fmap .fl[data-s="target"]::after {
+    content: ""; position: absolute; inset: -4px; border-radius: 7px;
+    border: 2px solid rgb(var(--c-cobalt)); animation: lotping 1.6s ease-out infinite;
+  }
+  .fl.sw { width: 0.8rem; height: 0.8rem; border-radius: 3px; transform: none; box-shadow: none; }
+
+  .toast-in { animation: toastin 0.2s ease-out both; }
+  .drawer-in { animation: drawerin 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+}
+
+@keyframes lotping {
+  from { opacity: 0.7; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.35); }
+}
+@keyframes toastin {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes drawerin {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: var(--font-body);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ตัวแปรของ shadcn ชี้ไปที่สีของเว็บ (--c-*) คอมโพเนนต์ shadcn จึงใช้สีเดียวกับส่วนอื่น */
+:root {
+  --background: rgb(var(--c-paper));
+  --foreground: rgb(var(--c-ink));
+  --card: rgb(var(--c-surface));
+  --card-foreground: rgb(var(--c-ink));
+  --popover: rgb(var(--c-surface));
+  --popover-foreground: rgb(var(--c-ink));
+  --primary: rgb(var(--c-cobalt));
+  --primary-foreground: rgb(var(--c-oncobalt));
+  --secondary: rgb(var(--c-mist));
+  --secondary-foreground: rgb(var(--c-ink));
+  --muted: rgb(var(--c-mist));
+  --muted-foreground: rgb(var(--c-muted));
+  --accent: rgb(var(--c-mist));
+  --accent-foreground: rgb(var(--c-ink));
+  --destructive: rgb(var(--c-danger));
+  --border: rgb(var(--c-line));
+  --input: rgb(var(--c-line));
+  --ring: rgb(var(--c-cobalt));
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
