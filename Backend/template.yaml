@@ -1,0 +1,291 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: BookMyBooth backend (API Gateway + Lambda + DynamoDB + S3 + Cognito) for AWS Academy Learner Lab
+
+# ทุก resource ใช้ LabRole ที่มีอยู่แล้วในบัญชี Lab ห้ามสร้าง IAM role/policy เอง
+# - ใส่ Role ที่ Function ทีละตัว (SAM ไม่รองรับ Role ใน Globals)
+# - ห้ามใช้ Policies ใน Function เพราะ SAM จะสร้าง role ใหม่
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: ใช้ต่อท้ายชื่อ resource
+  LabRoleName:
+    Type: String
+    Default: LabRole
+    Description: ชื่อ IAM role ที่ Learner Lab เตรียมไว้ (ARN สร้างจาก account ที่ deploy)
+  AllowedOrigins:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173
+    Description: โดเมนหน้าเว็บที่เรียก API และอัปโหลดไฟล์ได้ (คั่นด้วย comma เช่น โดเมน Amplify)
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures: [x86_64]
+    CodeUri: src/
+    Timeout: 10
+    MemorySize: 256
+    Layers:
+      # pydantic มากับ layer นี้แล้ว
+      - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python313-x86_64:40
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        USERS_TABLE: !Ref UsersTable
+        EVENTS_TABLE: !Ref EventsTable
+        LOTS_TABLE: !Ref LotsTable
+        BOOKINGS_TABLE: !Ref BookingsTable
+        NOTIFICATIONS_TABLE: !Ref NotificationsTable
+        FILES_BUCKET: !Ref FilesBucket
+        POWERTOOLS_SERVICE_NAME: bookmybooth
+        POWERTOOLS_LOG_LEVEL: INFO
+
+Resources:
+  # ---------- DynamoDB (PLAN หัวข้อ 4) ----------
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bookmybooth-${Stage}-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: userId, AttributeType: S }
+        - { AttributeName: roleStatus, AttributeType: S }
+        - { AttributeName: createdAt, AttributeType: S }
+      KeySchema:
+        - { AttributeName: userId, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: byRoleStatus
+          KeySchema:
+            - { AttributeName: roleStatus, KeyType: HASH }
+            - { AttributeName: createdAt, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bookmybooth-${Stage}-events
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: eventId, AttributeType: S }
+        - { AttributeName: organizerId, AttributeType: S }
+        - { AttributeName: createdAt, AttributeType: S }
+        - { AttributeName: publishStatus, AttributeType: S }
+        - { AttributeName: startDate, AttributeType: S }
+      KeySchema:
+        - { AttributeName: eventId, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: byOrganizer
+          KeySchema:
+            - { AttributeName: organizerId, KeyType: HASH }
+            - { AttributeName: createdAt, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: byPublishStatus
+          KeySchema:
+            - { AttributeName: publishStatus, KeyType: HASH }
+            - { AttributeName: startDate, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+  # SK เป็นรหัสล็อก (A01) หรือ QUOTA#<sellerId> สำหรับนับโควตาต่อผู้ขาย
+  LotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bookmybooth-${Stage}-lots
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: eventId, AttributeType: S }
+        - { AttributeName: lotId, AttributeType: S }
+      KeySchema:
+        - { AttributeName: eventId, KeyType: HASH }
+        - { AttributeName: lotId, KeyType: RANGE }
+
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bookmybooth-${Stage}-bookings
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: bookingId, AttributeType: S }
+        - { AttributeName: sellerId, AttributeType: S }
+        - { AttributeName: createdAt, AttributeType: S }
+        - { AttributeName: eventId, AttributeType: S }
+        - { AttributeName: statusCreatedAt, AttributeType: S }
+      KeySchema:
+        - { AttributeName: bookingId, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: bySeller
+          KeySchema:
+            - { AttributeName: sellerId, KeyType: HASH }
+            - { AttributeName: createdAt, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: byEventStatus
+          KeySchema:
+            - { AttributeName: eventId, KeyType: HASH }
+            - { AttributeName: statusCreatedAt, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+  # SK = createdAt#notificationId, ลบอัตโนมัติด้วย TTL หลัง 90 วัน
+  NotificationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bookmybooth-${Stage}-notifications
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: userId, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: userId, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ---------- S3: สลิปและภาพผังงาน ----------
+
+  FilesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods: [GET, POST]
+            AllowedOrigins: !Ref AllowedOrigins
+            AllowedHeaders: ["*"]
+            MaxAge: 3000
+
+  # ---------- Cognito (PLAN หัวข้อ 5) ----------
+  # PostConfirmation trigger เพิ่มในสัปดาห์ 3–4
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub bookmybooth-${Stage}
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - { Name: verified_email, Priority: 1 }
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireUppercase: false
+          RequireSymbols: false
+      Schema:
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          StringAttributeConstraints: { MinLength: "1", MaxLength: "20" }
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub bookmybooth-${Stage}-web
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
+  SellerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: Seller
+      Precedence: 30
+
+  OrganizerGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: Organizer
+      Precedence: 20
+
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref UserPool
+      GroupName: Admin
+      Precedence: 10
+
+  # ---------- API Gateway (HTTP API) ----------
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        DefaultAuthorizer: CognitoJwt
+        Authorizers:
+          CognitoJwt:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
+              audience:
+                - !Ref UserPoolClient
+      CorsConfiguration:
+        AllowOrigins: !Ref AllowedOrigins
+        AllowMethods: [GET, POST, PUT, DELETE, OPTIONS]
+        AllowHeaders: [authorization, content-type]
+        MaxAge: 600
+      # ไม่ให้เกิน limit 10 concurrent ของ Lab
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 20
+
+  # ---------- Lambda (PLAN หัวข้อ 6) ----------
+  # route สาธารณะต้องใส่ Auth.Authorizer: NONE เพราะ HttpApi ตั้ง DefaultAuthorizer ไว้
+
+  EventsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: functions.events.app.lambda_handler
+      Role: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${LabRoleName}
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /health
+            Method: GET
+            Auth:
+              Authorizer: NONE
+
+Outputs:
+  ApiUrl:
+    Description: VITE_API_URL
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  UserPoolId:
+    Description: VITE_USER_POOL_ID
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: VITE_USER_POOL_CLIENT_ID
+    Value: !Ref UserPoolClient
+  Region:
+    Description: VITE_REGION
+    Value: !Ref AWS::Region
+  BucketName:
+    Value: !Ref FilesBucket

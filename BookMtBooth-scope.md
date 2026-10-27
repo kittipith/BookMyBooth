@@ -1,7 +1,7 @@
 # BookMyBooth: ระบบจองล็อกขายสินค้าและพื้นที่บูธออนไลน์สำหรับงานมหาวิทยาลัย
 
 > เอกสารกำหนดขอบเขตโปรเจค (Project Scope)
-> สถาปัตยกรรม: AWS Serverless | ระยะเวลา: 2–3 เดือน
+> สถาปัตยกรรม: AWS Serverless (บน AWS Academy Learner Lab) | ระยะเวลา: 2–3 เดือน
 
 ---
 
@@ -110,12 +110,14 @@ BookMyBooth เป็นเว็บแอปพลิเคชันสำห�
 ## 5. สถาปัตยกรรมระบบ (AWS Serverless)
 
 ```
-ผู้ใช้ ──► CloudFront ──► S3 (Next.js static export)
+ผู้ใช้ ──► AWS Amplify Hosting (React + Vite SPA)
+   │            │
+   │            └── Amplify JS library ──► Cognito (สมัคร / ล็อกอิน / OTP)
    │
    └──► API Gateway (HTTP API + Cognito JWT Authorizer)
               │
               ▼
-          AWS Lambda (Node.js / TypeScript)
+          AWS Lambda (Python 3.13, ใช้ LabRole)
               │
      ┌────────┼──────────────┬──────────────────────┐
      ▼        ▼              ▼                      ▼
@@ -125,17 +127,29 @@ BookMyBooth เป็นเว็บแอปพลิเคชันสำห�
 
 | ส่วนประกอบ | บริการ AWS | หน้าที่ |
 |---|---|---|
-| Frontend | Next.js (static export) บน S3 + CloudFront | หน้าเว็บทั้งหมด |
-| ยืนยันตัวตน | Amazon Cognito | สมัคร ล็อกอิน แยกสิทธิ์ด้วย Groups |
+| Frontend | React + Vite (SPA) บน AWS Amplify Hosting | หน้าเว็บทั้งหมด มี HTTPS และ CDN ในตัว จึงไม่ต้องตั้ง CloudFront เอง |
+| ยืนยันตัวตน | Amazon Cognito (เรียกผ่าน Amplify JS library) | สมัคร ล็อกอิน แยกสิทธิ์ด้วย Groups |
 | API | API Gateway (HTTP API) | รับ request ตรวจ JWT |
 | Business logic | AWS Lambda | ประมวลผลทุกฟังก์ชัน |
 | ฐานข้อมูล | Amazon DynamoDB | เก็บข้อมูลงาน ล็อก การจอง การแจ้งเตือน |
 | ไฟล์ | Amazon S3 (private bucket) | เก็บสลิปและภาพผังงาน อัปโหลด/ดูผ่าน Presigned URL |
 | งานตามเวลา | EventBridge Scheduler | ยกเลิกการจองที่หมดเวลา |
 | Log/Monitoring | CloudWatch | ดู log และ error |
-| Infrastructure as Code | AWS SAM หรือ AWS CDK | สร้าง resource ทั้งหมดด้วยโค้ด |
+| Infrastructure as Code | AWS SAM (CloudFormation) | สร้าง backend ทั้งหมด (Cognito, API Gateway, Lambda, DynamoDB, S3) ด้วยโค้ด |
 
-> หมายเหตุ: ใช้ Next.js แบบ static export เพื่อให้โฮสต์บน S3 ได้ตรง ๆ และไม่ต้องจัดการ SSR บน Lambda ซึ่งซับซ้อนเกินขอบเขตโปรเจค
+> หมายเหตุ:
+> - Amplify ใช้เฉพาะ **Hosting** ของหน้าเว็บ และใช้ library `aws-amplify` ฝั่ง frontend เพื่อเรียก Cognito ส่วน backend สร้างด้วย SAM ไม่ใช้ Amplify Gen 2 (`ampx`/CDK) เพราะ CDK bootstrap ต้องสร้าง IAM role ใหม่ ซึ่ง Learner Lab ไม่อนุญาต
+> - ตั้ง rewrite rule ใน Amplify ให้ทุก path ส่งไปที่ `/index.html` (200) เพื่อให้ react-router ทำงานเมื่อ refresh หน้า
+> - เปิด CORS ที่ API Gateway ให้โดเมนของ Amplify
+
+### 5.1 ข้อจำกัดของ AWS Academy Learner Lab
+
+- ใช้ได้เฉพาะ Region `us-east-1` และ `us-west-2`
+- สร้าง IAM role เองไม่ได้ ทุก Lambda, EventBridge Scheduler และ Cognito trigger ต้องใช้ role ที่มีให้ชื่อ **`LabRole`**
+- Lambda รันพร้อมกันได้สูงสุด **10 instances** การทดสอบจองพร้อมกันต้องยิง request จำนวนน้อย การพยายามเกิน limit อาจทำให้บัญชีถูกปิด
+- Credentials เปลี่ยนทุก session จึง deploy backend ด้วย `sam deploy` จาก CloudShell หรือเครื่องสมาชิกในแต่ละ session แทน CI/CD อัตโนมัติ
+- ถ้าใช้งบเกิน บัญชีจะถูกปิดและข้อมูลหายทั้งหมด จึงเก็บ SAM template และโค้ดทั้งหมดไว้ใน Git เพื่อสร้างใหม่ได้ และหลีกเลี่ยงบริการที่เปิดค้างแล้วเสียเงิน (EC2, RDS, NAT Gateway)
+- Learner Lab ของแต่ละคนเป็นบัญชีแยกกัน กำหนดบัญชีหลัก 1 บัญชีสำหรับ deploy ตัวจริง สมาชิกคนอื่นใช้ template เดียวกัน deploy ลงบัญชีตัวเองเพื่อพัฒนาและทดสอบ
 
 ---
 
@@ -185,7 +199,8 @@ BookMyBooth เป็นเว็บแอปพลิเคชันสำห�
 - **ความปลอดภัย**: ทุก API ที่ต้องล็อกอินตรวจ JWT ผ่าน Cognito Authorizer และ Lambda ตรวจสิทธิ์ซ้ำว่าเป็นเจ้าของข้อมูลจริง (เช่น ผู้จัดงานจัดการได้เฉพาะงานของตัวเอง)
 - **ไฟล์สลิป**: รองรับ JPG, PNG, PDF ขนาดไม่เกิน 5 MB เก็บใน private bucket เปิดดูได้เฉพาะเจ้าของการจองและผู้จัดงานของงานนั้นผ่าน Presigned URL อายุสั้น
 - **Responsive**: ใช้งานได้ทั้งมือถือและคอมพิวเตอร์
-- **ค่าใช้จ่าย**: ออกแบบให้อยู่ใน AWS Free Tier เป็นหลัก ใช้ DynamoDB แบบ On-demand
+- **ค่าใช้จ่าย**: ออกแบบให้อยู่ในงบของ Learner Lab ใช้เฉพาะบริการแบบ Serverless ที่คิดเงินตามการใช้งาน ใช้ DynamoDB แบบ On-demand และไม่เปิดบริการที่รันค้าง
+- **อีเมล OTP**: ใช้การส่งอีเมลในตัวของ Cognito (ไม่ต้องตั้ง SES) ซึ่งจำกัดจำนวนอีเมลต่อวัน เพียงพอสำหรับการพัฒนาและเดโม
 - **ภาษา**: หน้าเว็บภาษาไทย
 
 ---
@@ -208,7 +223,7 @@ BookMyBooth เป็นเว็บแอปพลิเคชันสำห�
 
 | สัปดาห์ | งาน |
 |---|---|
-| 1–2 | สรุป requirement, ออกแบบ UI (Figma), ออกแบบฐานข้อมูลและ API, ตั้งค่า AWS และ IaC |
+| 1–2 | สรุป requirement, ออกแบบ UI (Figma), ออกแบบฐานข้อมูลและ API, ตั้งค่า Learner Lab, SAM template และ Amplify Hosting |
 | 3–4 | Cognito + ระบบสมาชิก, Admin อนุมัติผู้จัดงาน, โครงหน้าเว็บหลัก |
 | 5–6 | ผู้จัดงาน: สร้างงาน โซน ล็อก และอัปโหลดภาพผังงาน |
 | 7–8 | ผู้ขาย: ดูล็อก ส่งคำขอจอง อัปโหลดสลิป, ป้องกันจองซ้ำ, หมดเวลาจอง |
@@ -223,9 +238,9 @@ BookMyBooth เป็นเว็บแอปพลิเคชันสำห�
 
 | สมาชิก | รหัส | หน้าที่หลัก (เสนอ) |
 |---|---|---|
-| นายกิตติพิชญ์ หิรัญวงศ์ | 66070018 | Cloud Infrastructure (IaC, Cognito, S3, CloudFront, Deploy) |
+| นายกิตติพิชญ์ หิรัญวงศ์ | 66070018 | Cloud Infrastructure (SAM, Cognito, S3, Amplify Hosting, Deploy) |
 | นายปณวัฒน์ ธรรมเจริญ | 66070113 | Backend: Booking flow, DynamoDB transaction, EventBridge |
 | นายสรวิชญ์ กาญจนสันติศักดิ์ | 66070199 | Backend: Event/Lot API, Admin API, Notification |
-| นางสาวอิสรีย์ แม้นถาวรสิริ | 66070323 | Frontend (Next.js), UI/UX, เชื่อมต่อ API |
+| นางสาวอิสรีย์ แม้นถาวรสิริ | 66070323 | Frontend (React + Vite), UI/UX, เชื่อมต่อ API และ Cognito |
 
 > ปรับได้ตามความถนัดของสมาชิก ทุกคนควรร่วมทดสอบและทำเอกสาร

@@ -1,0 +1,36 @@
+version = 0.1
+
+# sam build && sam deploy              → stack bookmybooth-dev
+# sam build && sam deploy --config-env prod → stack bookmybooth-prod
+# เพิ่มโดเมน Amplify: --parameter-overrides "AllowedOrigins=http://localhost:5173,https://main.xxxx.amplifyapp.com"
+
+[default.global.parameters]
+stack_name = "bookmybooth-dev"
+region = "us-east-1"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+parameter_overrides = "Stage=dev"
+
+[prod.global.parameters]
+stack_name = "bookmybooth-prod"
+region = "us-east-1"
+
+[prod.build.parameters]
+cached = true
+parallel = true
+
+[prod.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+resolve_s3 = true
+parameter_overrides = "Stage=prod"
