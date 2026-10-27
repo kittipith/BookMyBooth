@@ -1,61 +1,91 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import { getSlipUrl } from '../../api/bookings'
+import { errorMessage } from '../../api/client'
 import Chip from '../../components/common/Chip'
 import ConfirmDialog from '../../components/popup/ConfirmDialog'
-import BookingTicket from '../../components/user/BookingTicket'
 import QrDialog from '../../components/popup/QrDialog'
-import { BOOKING_STATUS_LABEL, CANCEL_REASON } from '../../data/options'
+import BookingTicket from '../../components/user/BookingTicket'
+import { BOOKING_STATUS_LABEL } from '../../data/options'
 import { POLICY } from '../../data/settings'
-import { useAppStore, useMyShop } from '../../hooks/useAppStore'
 import { useToast } from '../../hooks/useToast'
-import type { Booking, BookingStatus } from '../../types'
+import { useCancelMyBooking, useMyBookings } from '../../queries/bookings'
+import { useEvents } from '../../queries/events'
+import { groupOf } from '../../services/bookings'
+import type { BookingUiStatus, SellerBooking } from '../../types'
 
-type Tab = 'all' | BookingStatus
-const TABS: Tab[] = ['all', 'pending', 'approved', 'rejected', 'cancelled']
+type Tab = 'all' | BookingUiStatus
+const TABS: Tab[] = ['all', 'awaiting_slip', 'pending', 'approved', 'rejected', 'cancelled', 'expired']
 
 export default function MyBookingsPage() {
-  const { events, cancelBooking } = useAppStore()
-  const { myBookings } = useMyShop()
+  const { data: bookings = [], isPending } = useMyBookings()
+  const { data: events = [] } = useEvents()
+  const cancel = useCancelMyBooking()
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('all')
-  const [qrFor, setQrFor] = useState<Booking | null>(null)
-  const [cancelFor, setCancelFor] = useState<Booking | null>(null)
+  const [qrFor, setQrFor] = useState<SellerBooking | null>(null)
+  const [cancelFor, setCancelFor] = useState<SellerBooking | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
-  const eventOf = (b: Booking) => events.find((e) => e.id === b.eventId)
+  // นับถอยหลังเวลาแนบสลิป
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const eventOf = (b: SellerBooking) => events.find((e) => e.id === b.eventId)
   // งานที่ยังไม่จบขึ้นก่อน เรียงตามวันงาน แล้วต่อด้วยงานที่จบแล้ว
-  const mine = [...myBookings].sort((a, b) => {
+  const mine = [...bookings].sort((a, b) => {
     const ea = eventOf(a)
     const eb = eventOf(b)
     const endedA = ea?.status === 'ended' ? 1 : 0
     const endedB = eb?.status === 'ended' ? 1 : 0
     if (endedA !== endedB) return endedA - endedB
-    const da = ea?.days[a.days[0]]?.date ?? ''
-    const db = eb?.days[b.days[0]]?.date ?? ''
-    return endedA ? db.localeCompare(da) : da.localeCompare(db)
+    const da = ea?.startDate ?? ''
+    const db = eb?.startDate ?? ''
+    return (endedA ? db.localeCompare(da) : da.localeCompare(db)) || a.lot.localeCompare(b.lot)
   })
   const count = (t: Tab) => (t === 'all' ? mine.length : mine.filter((b) => b.status === t).length)
   const list = tab === 'all' ? mine : mine.filter((b) => b.status === tab)
+
+  const showSlip = async (b: SellerBooking) => {
+    // เปิดแท็บก่อนรอ API ไม่งั้นเบราว์เซอร์บล็อก popup
+    const win = window.open('', '_blank')
+    try {
+      const { url } = await getSlipUrl(b.id)
+      if (win) win.location.href = url
+      else window.location.assign(url)
+    } catch (e) {
+      win?.close()
+      toast(errorMessage(e), 'danger')
+    }
+  }
 
   return (
     <section className="max-w-5xl mx-auto px-5 py-10">
       <h1 className="font-display text-4xl font-bold">การจองของฉัน</h1>
       <div className="mt-6 flex gap-2 flex-wrap" role="tablist">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t === 'all' || t === 'pending' || t === 'approved' || count(t) > 0).map((t) => (
           <Chip key={t} role="tab" pressed={tab === t} onClick={() => setTab(t)}>
             {t === 'all' ? 'ทั้งหมด' : BOOKING_STATUS_LABEL[t]} <span className="opacity-60">{count(t)}</span>
           </Chip>
         ))}
       </div>
       <div className="mt-6 space-y-5">
-        {list.map((b) => {
-          const event = eventOf(b)
-          return (
-            event && (
-              <BookingTicket key={b.id} booking={b} event={event} onShowQr={() => setQrFor(b)} onCancel={() => setCancelFor(b)} />
-            )
-          )
-        })}
-        {!list.length && (
+        {list.map((b) => (
+          <BookingTicket
+            key={b.id}
+            booking={b}
+            event={eventOf(b)}
+            groupLots={groupOf(bookings, b.groupId).map((g) => g.lot)}
+            now={now}
+            onShowQr={() => setQrFor(b)}
+            onShowSlip={() => showSlip(b)}
+            onCancel={() => setCancelFor(b)}
+          />
+        ))}
+        {isPending && <p className="py-14 text-center text-muted">กำลังโหลดการจอง…</p>}
+        {!isPending && !list.length && (
           <div className="border border-dashed border-line rounded-2xl py-14 text-center">
             <p className="text-muted">ยังไม่มีการจองในหมวดนี้</p>
             <Link to="/events" className="mt-3 inline-block text-cobalt font-semibold hover:underline underline-offset-4">
@@ -65,18 +95,21 @@ export default function MyBookingsPage() {
         )}
       </div>
 
-      <QrDialog booking={qrFor} event={qrFor ? eventOf(qrFor) : undefined} onClose={() => setQrFor(null)} />
+      <QrDialog booking={qrFor} eventTitle={qrFor ? (eventOf(qrFor)?.title ?? qrFor.eventTitle) : undefined} onClose={() => setQrFor(null)} />
       <ConfirmDialog
         open={!!cancelFor}
         title="ยกเลิกคำขอนี้"
-        message={cancelFor && `ล็อก ${cancelFor.lot} จะกลับไปว่างให้คนอื่นจอง และระบบจะคืนเงินให้ภายใน ${POLICY.refundBusinessDays} วันทำการ`}
+        message={
+          cancelFor &&
+          `ล็อก ${cancelFor.lot} จะกลับไปว่างให้คนอื่นจอง${cancelFor.hasSlip ? ` และระบบจะคืนเงินให้ภายใน ${POLICY.refundBusinessDays} วันทำการ` : ''}`
+        }
         confirmLabel="ยกเลิกคำขอ"
         onClose={() => setCancelFor(null)}
         onConfirm={() => {
           if (!cancelFor) return
-          cancelBooking(cancelFor.id, CANCEL_REASON.bySeller, 'seller')
-          toast(`ยกเลิกคำขอ ${cancelFor.id} แล้ว`)
+          const target = cancelFor
           setCancelFor(null)
+          cancel.mutate({ bookingId: target.id, eventId: target.eventId }, { onSuccess: () => toast(`ยกเลิกคำขอล็อก ${target.lot} แล้ว`) })
         }}
       />
     </section>

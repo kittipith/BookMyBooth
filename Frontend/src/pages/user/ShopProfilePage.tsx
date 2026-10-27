@@ -1,32 +1,66 @@
 import { useState, type FormEvent } from 'react'
+import type { UpdateMeDto, UserDto } from '../../api/dto'
 import { POWER_OPTIONS, PRODUCT_CATEGORIES } from '../../data/options'
-import { useAppStore, useMyShop } from '../../hooks/useAppStore'
+import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import type { Shop } from '../../types'
+import { useMyBookings } from '../../queries/bookings'
+import { useEvents } from '../../queries/events'
+import { useUpdateMe } from '../../queries/me'
+import { sellerStats } from '../../services/bookings'
+import { cleanPhone } from '../../services/auth'
 import { baht, initial } from '../../utils/format'
 import SelectBox from '../../components/common/SelectBox'
 
 const field = 'mt-2 w-full bg-surface border border-line rounded-lg px-3 py-2.5 outline-none focus:border-cobalt'
 
-export default function ShopProfilePage() {
-  const { shop } = useMyShop()
-  // key ให้ฟอร์มเริ่มใหม่เมื่อข้อมูลร้านถูกแทนที่ เช่น คืนค่าข้อมูลตัวอย่าง
-  return <ShopProfileForm key={JSON.stringify(shop)} shop={shop} />
+/** ฟิลด์ที่ผู้ขายแก้ได้ผ่าน PUT /me (F8, F29) */
+interface ShopForm {
+  shopName: string
+  displayName: string
+  category: string
+  phone: string
+  line: string
+  power: string
+  bio: string
 }
 
-function ShopProfileForm({ shop }: { shop: Shop }) {
-  const { updateShop } = useAppStore()
-  const { stats } = useMyShop()
-  const toast = useToast()
-  const [form, setForm] = useState<Shop>(shop)
-  const dirty = JSON.stringify(form) !== JSON.stringify(shop)
+const toForm = (me: UserDto): ShopForm => ({
+  shopName: me.shopName ?? '',
+  displayName: me.displayName ?? '',
+  category: me.category ?? PRODUCT_CATEGORIES[0],
+  phone: me.phone ?? '',
+  line: me.line ?? '',
+  power: me.power ?? POWER_OPTIONS[0],
+  bio: me.bio ?? '',
+})
 
-  const set = <K extends keyof Shop>(key: K, value: Shop[K]) => setForm((f) => ({ ...f, [key]: value }))
+export default function ShopProfilePage() {
+  const { me } = useAuth()
+  if (!me) return null
+  // key ให้ฟอร์มเริ่มใหม่เมื่อโปรไฟล์จาก backend เปลี่ยน
+  return <ShopProfileForm key={me.updatedAt} me={me} />
+}
+
+function ShopProfileForm({ me }: { me: UserDto }) {
+  const { data: bookings = [] } = useMyBookings()
+  const { data: events = [] } = useEvents()
+  const stats = sellerStats(bookings, events)
+  const toast = useToast()
+  const update = useUpdateMe()
+  const saved = toForm(me)
+  const [form, setForm] = useState<ShopForm>(saved)
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved)
+
+  const set = <K extends keyof ShopForm>(key: K, value: ShopForm[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()
-    updateShop({ ...form, name: form.name.trim() })
-    toast('บันทึกข้อมูลร้านแล้ว')
+    const next: ShopForm = { ...form, shopName: form.shopName.trim(), displayName: form.displayName.trim(), phone: cleanPhone(form.phone) }
+    // ส่งเฉพาะช่องที่เปลี่ยน
+    const changes: UpdateMeDto = Object.fromEntries(
+      (Object.keys(next) as (keyof ShopForm)[]).filter((key) => next[key] !== saved[key]).map((key) => [key, next[key]]),
+    )
+    update.mutate(changes, { onSuccess: () => toast('บันทึกข้อมูลร้านแล้ว') })
   }
 
   return (
@@ -37,11 +71,11 @@ function ShopProfileForm({ shop }: { shop: Shop }) {
         <form onSubmit={onSubmit} className="grid sm:grid-cols-2 gap-5">
           <label className="sm:col-span-2">
             <span className="text-sm font-semibold">ชื่อร้าน</span>
-            <input required value={form.name} onChange={(e) => set('name', e.target.value)} className={field} />
+            <input required maxLength={100} value={form.shopName} onChange={(e) => set('shopName', e.target.value)} className={field} />
           </label>
           <label>
             <span className="text-sm font-semibold">ชื่อเจ้าของร้าน</span>
-            <input required value={form.owner} onChange={(e) => set('owner', e.target.value)} className={field} />
+            <input required maxLength={100} value={form.displayName} onChange={(e) => set('displayName', e.target.value)} className={field} />
           </label>
           <label>
             <span className="text-sm font-semibold">ประเภทสินค้า</span>
@@ -52,8 +86,8 @@ function ShopProfileForm({ shop }: { shop: Shop }) {
             <input
               required
               type="tel"
-              pattern="[0-9 ]{9,12}"
-              title="ตัวเลข 9–10 หลัก"
+              pattern="0[0-9 \-]{8,11}"
+              title="ขึ้นต้นด้วย 0 ตัวเลข 9–10 หลัก"
               value={form.phone}
               onChange={(e) => set('phone', e.target.value)}
               className={field}
@@ -61,7 +95,7 @@ function ShopProfileForm({ shop }: { shop: Shop }) {
           </label>
           <label>
             <span className="text-sm font-semibold">LINE ID</span>
-            <input value={form.line} onChange={(e) => set('line', e.target.value)} className={field} />
+            <input maxLength={50} value={form.line} onChange={(e) => set('line', e.target.value)} className={field} />
           </label>
           <label className="sm:col-span-2">
             <span className="text-sm font-semibold">ต้องใช้ไฟฟ้า</span>
@@ -69,17 +103,17 @@ function ShopProfileForm({ shop }: { shop: Shop }) {
           </label>
           <label className="sm:col-span-2">
             <span className="text-sm font-semibold">แนะนำร้าน</span>
-            <textarea rows={4} value={form.bio} onChange={(e) => set('bio', e.target.value)} className={field} />
+            <textarea rows={4} maxLength={1000} value={form.bio} onChange={(e) => set('bio', e.target.value)} className={field} />
           </label>
           <div className="sm:col-span-2 flex items-center gap-4">
             <button
-              disabled={!dirty}
+              disabled={!dirty || update.isPending}
               className="bg-cobalt text-oncobalt rounded-xl px-6 py-3 font-semibold press disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              บันทึกข้อมูลร้าน
+              {update.isPending ? 'กำลังบันทึก…' : 'บันทึกข้อมูลร้าน'}
             </button>
-            {dirty && (
-              <button type="button" onClick={() => setForm(shop)} className="text-sm text-muted underline underline-offset-4">
+            {dirty && !update.isPending && (
+              <button type="button" onClick={() => setForm(saved)} className="text-sm text-muted underline underline-offset-4">
                 ยกเลิกการแก้ไข
               </button>
             )}
@@ -89,11 +123,11 @@ function ShopProfileForm({ shop }: { shop: Shop }) {
           <p className="text-sm text-muted mb-3">ผู้จัดงานจะเห็นร้านของคุณแบบนี้</p>
           <div className="bg-surface border border-line rounded-2xl p-5">
             <div className="w-12 h-12 rounded-full bg-cobalt text-oncobalt grid place-items-center font-display text-xl font-semibold">
-              {initial(form.owner)}
+              {initial(form.displayName || form.shopName)}
             </div>
-            <h3 className="mt-3 font-display text-xl font-semibold">{form.name || 'ชื่อร้าน'}</h3>
+            <h3 className="mt-3 font-display text-xl font-semibold">{form.shopName || 'ชื่อร้าน'}</h3>
             <p className="text-sm text-muted">
-              {form.category} · {form.owner}
+              {form.category} · {form.displayName}
             </p>
             <p className="mt-3 text-sm leading-relaxed">{form.bio}</p>
             <dl className="mt-4 pt-4 border-t border-line grid grid-cols-2 gap-3 text-sm">

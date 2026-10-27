@@ -72,7 +72,83 @@ export interface MarketEvent extends Omit<EventRecord, 'status' | 'days'> {
   lotState: Record<string, Exclude<LotState, 'free'>>[]
 }
 
+/**
+ * งานจาก API (GET /events, /events/{id}) จองทั้งงาน ราคาต่อล็อก = ราคาโซน ไม่มีราคารายวัน (F11, I2)
+ * หน้ารายการงาน (GET /events) ไม่มีผังและบัญชีรับเงิน layout จึงเป็น [] จนกว่าจะโหลดรายละเอียด
+ */
+export interface PublicEvent {
+  id: string
+  type: EventType
+  title: string
+  round?: string
+  organizerId: string
+  /** ชื่อองค์กรผู้จัดตอนสร้างงาน */
+  organizer: string
+  venue: string
+  hours: string
+  description: string
+  /** YYYY-MM-DD */
+  startDate: string
+  endDate: string
+  /** ISO-8601 */
+  bookingOpensAt: string
+  bookingClosesAt: string
+  /** คำนวณโดย backend */
+  status: EventStatus
+  /** สถานะที่ผู้จัดงานตั้ง (draft → open → closed) */
+  publishStatus: PublishStatus
+  maxLotsPerSeller: number | null
+  slipDeadlineMinutes: number
+  zones: Zone[]
+  cols: number
+  rows: number
+  layout: CellType[]
+  disabledCells: number[]
+  lotSizes: Record<string, string>
+  payment?: PaymentAccount
+}
+
+/** สถานะล็อกทั้งงานจาก GET /events/{id}/lots ตามรหัสล็อก */
+export type LotStates = Record<string, LotState>
+
 export type BookingStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
+
+/**
+ * สถานะการจองจาก API เพิ่มจากเดิม 2 ค่า: รอแนบสลิป (PENDING_PAYMENT) และหมดเวลา (EXPIRED) (F21)
+ * pending = แนบสลิปแล้ว รอผู้จัดงานตรวจ (PENDING_REVIEW)
+ */
+export type BookingUiStatus = BookingStatus | 'awaiting_slip' | 'expired'
+
+/** การจองหนึ่งล็อกจาก GET /bookings/me จองหลายล็อกพร้อมกันผูกด้วย groupId (สลิปเดียวต่อชุด) */
+export interface SellerBooking {
+  id: string
+  groupId: string
+  eventId: string
+  eventTitle: string
+  lot: string
+  status: BookingUiStatus
+  /** ราคาโซน (บาท) */
+  amount: number
+  /** เส้นตายแนบสลิป (ISO) */
+  expiresAt: string
+  hasSlip: boolean
+  shopName: string
+  category: string
+  staff: string
+  power: boolean
+  note: string
+  reason?: string
+  moves: LotMove[]
+  checkedIn: boolean
+  createdAt: string
+}
+
+/** การจองในงานของผู้จัดงาน (GET /events/{id}/bookings) มีข้อมูลที่ผู้จัดงานต้องใช้ตรวจเพิ่ม */
+export interface OrganizerBooking extends SellerBooking {
+  sellerId: string
+  productDescription: string
+  checkedInAt?: string
+}
 
 export interface LotMove {
   from: string
@@ -182,6 +258,8 @@ export type RegisterErrors = Partial<Record<keyof RegisterInput, string>>
 
 export type NotificationType =
   | 'booking_new'
+  | 'booking_slip_uploaded'
+  | 'booking_expired'
   | 'booking_approved'
   | 'booking_moved'
   | 'booking_rejected'
@@ -190,6 +268,7 @@ export type NotificationType =
   | 'organizer_approved'
   | 'organizer_rejected'
   | 'account_suspended'
+  | 'account_unsuspended'
 
 export interface AppNotification {
   id: string

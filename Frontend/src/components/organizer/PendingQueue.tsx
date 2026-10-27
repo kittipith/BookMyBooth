@@ -1,12 +1,12 @@
-import type { Booking, MarketEvent } from '../../types'
-import { baht } from '../../utils/format'
+import type { OrganizerBooking, PublicEvent } from '../../types'
+import { baht, dateTimeLabel, fullTitle } from '../../utils/format'
 
 interface PendingQueueProps {
-  bookings: Booking[]
-  events: MarketEvent[]
-  onOpen: (b: Booking) => void
-  onApprove: (b: Booking) => void
-  onReject: (b: Booking) => void
+  bookings: OrganizerBooking[]
+  events: PublicEvent[]
+  onOpen: (b: OrganizerBooking) => void
+  onApprove: (b: OrganizerBooking) => void
+  onReject: (b: OrganizerBooking) => void
 }
 
 export default function PendingQueue({ bookings, events, onOpen, onApprove, onReject }: PendingQueueProps) {
@@ -24,8 +24,7 @@ export default function PendingQueue({ bookings, events, onOpen, onApprove, onRe
             <button type="button" onClick={() => onOpen(b)} className="min-w-0 flex-1 text-left hover:text-cobalt">
               <span className="block font-semibold truncate">{b.shopName}</span>
               <span className="block text-sm text-muted truncate">
-                {b.days.map((d) => event?.days[d]?.label).join(', ')}{' '}
-                {b.slipAmount !== b.amount && <span className="text-danger">ยอดในสลิปไม่ตรง</span>}
+                {event ? fullTitle(event) : b.eventTitle} · {dateTimeLabel(b.createdAt)}
               </span>
             </button>
             <span className="font-display font-semibold hidden sm:block">{baht(b.amount)}</span>

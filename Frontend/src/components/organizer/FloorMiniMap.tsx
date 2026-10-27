@@ -1,17 +1,19 @@
 import { FLOOR_STATE_LABEL as TITLE } from '../../data/options'
-import type { MarketEvent } from '../../types'
+import { lotStateOf } from '../../services/events'
+import type { LotStates, PublicEvent } from '../../types'
 import { cellSizes } from '../../utils/layout'
-import { lotStateOn, lotZoneId } from '../../utils/pricing'
+import { lotZoneId } from '../../utils/pricing'
 import LayoutGrid from '../common/LayoutGrid'
 
 interface FloorMiniMapProps {
-  event: MarketEvent
-  dayIdx: number
+  event: PublicEvent
+  /** สถานะล็อกจาก GET /events/{id}/lots */
+  states: LotStates
   target: string
 }
 
 /** ผังย่อสำหรับผู้จัดงาน วางตามผังที่วาดไว้ และเน้นล็อกที่ร้านนี้ขอ */
-export default function FloorMiniMap({ event, dayIdx, target }: FloorMiniMapProps) {
+export default function FloorMiniMap({ event, states, target }: FloorMiniMapProps) {
   return (
     <>
       <div
@@ -24,7 +26,7 @@ export default function FloorMiniMap({ event, dayIdx, target }: FloorMiniMapProp
           cols={event.cols}
           sizes={cellSizes(event.layout, event.zones, event.lotSizes)}
           renderLot={(code) => {
-            const s = code === target ? 'target' : lotStateOn(event, dayIdx, code)
+            const s = code === target ? 'target' : lotStateOf(states, code)
             return (
               <span className="fl" data-s={s} title={`${code} ${TITLE[s]}`}>
                 {code}

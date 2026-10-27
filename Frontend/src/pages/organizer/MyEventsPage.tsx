@@ -1,19 +1,17 @@
 import { Link } from 'react-router'
 import ProgressBar from '../../components/common/ProgressBar'
 import { EventStatusBadge } from '../../components/common/StatusBadge'
-import { useOrganizerData } from '../../hooks/useAppStore'
-import { eventRevenue, lotLimitLabel } from '../../services/selectors'
+import { useEventSummaries, useMyEvents } from '../../queries/organizer'
+import { lotLimitLabel } from '../../services/selectors'
 import type { EventStatus } from '../../types'
-import { baht, fullTitle, rangeLabel } from '../../utils/format'
-import { soldStats } from '../../utils/pricing'
+import { baht, bangkokDate, fullTitle, rangeLabel } from '../../utils/format'
 
 const ORDER: EventStatus[] = ['open', 'scheduled', 'closed', 'draft', 'ended']
 
 export default function MyEventsPage() {
-  const { myEvents, myBookings } = useOrganizerData()
-  const list = [...myEvents].sort(
-    (a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.days[0].date.localeCompare(b.days[0].date),
-  )
+  const { data: events = [], isPending, isError } = useMyEvents()
+  const summaries = useEventSummaries(events.map((e) => e.id))
+  const list = [...events].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.startDate.localeCompare(b.startDate))
 
   return (
     <section>
@@ -38,34 +36,40 @@ export default function MyEventsPage() {
           </thead>
           <tbody className="divide-y divide-line">
             {list.map((e) => {
-              const { sold, total } = soldStats(e)
-              const revenue = eventRevenue(myBookings, e.id)
+              const summary = summaries[e.id]
+              // ล็อกที่ปิดไว้ไม่นับเป็นล็อกที่ขายได้
+              const total = summary ? summary.lots.total - summary.lots.DISABLED : 0
+              const sold = summary?.lots.BOOKED ?? 0
               return (
                 <tr key={e.id}>
                   <td className="px-6 py-4">
                     <p className="font-semibold">{fullTitle(e)}</p>
-                    <p className="text-sm text-muted">{rangeLabel(e.days[0].date, e.days.at(-1)!.date)}</p>
+                    <p className="text-sm text-muted">{rangeLabel(e.startDate, e.endDate)}</p>
                     <p className="text-xs text-muted">
-                      เปิดรับจอง {rangeLabel(e.bookingOpens, e.bookingCloses)} · {lotLimitLabel(e)}
+                      เปิดรับจอง {rangeLabel(bangkokDate(e.bookingOpensAt), bangkokDate(e.bookingClosesAt))} · {lotLimitLabel(e)}
                     </p>
                   </td>
                   <td className="px-4 py-4">
                     <EventStatusBadge status={e.status} />
                   </td>
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-3">
-                      <ProgressBar value={total ? (sold / total) * 100 : 0} />
-                      <span className="text-sm">
-                        <b className="font-display">{sold}</b> <span className="text-muted">/ {total}</span>
-                      </span>
-                    </div>
+                    {summary ? (
+                      <div className="flex items-center gap-3">
+                        <ProgressBar value={total ? (sold / total) * 100 : 0} />
+                        <span className="text-sm">
+                          <b className="font-display">{sold}</b> <span className="text-muted">/ {total}</span>
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-muted">…</span>
+                    )}
                   </td>
                   <td className="px-4 py-4 text-right font-display font-semibold">
-                    {revenue ? baht(revenue) : <span className="text-muted font-body font-normal">ยังไม่มี</span>}
+                    {summary?.revenue ? baht(summary.revenue) : <span className="text-muted font-body font-normal">ยังไม่มี</span>}
                   </td>
                   <td className="px-6 py-4 text-right whitespace-nowrap">
                     <Link to={`/organizer/editor/${e.id}`} className="text-sm font-semibold text-cobalt hover:underline underline-offset-4">
-                      แก้ไขผัง
+                      {e.publishStatus === 'closed' ? 'ดูผัง' : 'แก้ไขผัง'}
                     </Link>
                     {e.status !== 'draft' && (
                       <Link to={`/organizer/bookings?tab=all&event=${e.id}`} className="ml-4 text-sm hover:underline underline-offset-4">
@@ -78,6 +82,11 @@ export default function MyEventsPage() {
             })}
           </tbody>
         </table>
+        {isPending && <p className="px-6 py-10 text-center text-muted">กำลังโหลดงาน…</p>}
+        {isError && <p className="px-6 py-10 text-center text-danger">โหลดงานไม่สำเร็จ ลองรีเฟรชหน้า</p>}
+        {!isPending && !isError && !list.length && (
+          <p className="px-6 py-10 text-center text-muted">ยังไม่มีงาน กดสร้างงานใหม่เพื่อเริ่มวาดผัง</p>
+        )}
       </div>
     </section>
   )

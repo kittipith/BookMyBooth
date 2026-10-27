@@ -22,7 +22,8 @@ GROUP_OF_ROLE = {SELLER: "Seller", ORGANIZER: "Organizer", ADMIN: "Admin"}
 # ฟิลด์โปรไฟล์ที่เจ้าของบัญชีแก้เองได้ผ่าน PUT /me
 EDITABLE_FIELDS: dict[str, frozenset[str]] = {
     SELLER: frozenset({"displayName", "phone", "shopName", "category", "line", "bio", "power"}),
-    ORGANIZER: frozenset({"displayName", "phone", "orgName"}),
+    # payment = บัญชีรับเงินตั้งต้น ใช้เติมฟอร์มสร้างงาน (INTEGRATION-PLAN I3)
+    ORGANIZER: frozenset({"displayName", "phone", "orgName", "payment"}),
     ADMIN: frozenset({"displayName", "phone"}),
 }
 

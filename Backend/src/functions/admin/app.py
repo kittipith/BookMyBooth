@@ -1,5 +1,6 @@
 """Admin API (PLAN หัวข้อ 9)"""
 
+from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
@@ -8,7 +9,7 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
-from domain import messages, users
+from domain import booking, events, messages, users
 from domain.schemas import ReasonInput
 from shared import clock, cognito, db
 from shared.auth import require_group
@@ -219,12 +220,62 @@ def unsuspend_user(user_id: str):
     return users.public_profile(updated)
 
 
+@app.get("/admin/users")
+def list_users():
+    """ผู้ใช้ทั้งหมด หรือเฉพาะบทบาท ?role=SELLER|ORGANIZER|ADMIN เรียงตามวันสมัคร"""
+    require_group(app, ADMIN_GROUP)
+    role = app.current_event.get_query_string_value("role")
+    if role is None:
+        items = db.scan_all("users")
+    else:
+        role = role.upper()
+        if role not in users.ROLES:
+            raise bad_request("บทบาทไม่ถูกต้อง", "INVALID_ROLE")
+        items = [
+            item
+            for status in users.STATUSES
+            for item in db.query_all(
+                "users",
+                IndexName="byRoleStatus",
+                KeyConditionExpression=Key("roleStatus").eq(users.role_status(role, status)),
+            )
+        ]
+    items.sort(key=lambda item: item.get("createdAt", ""))
+    return {"items": [users.public_profile(item) for item in items]}
+
+
+# การจองที่ยังถือล็อกอยู่ (ไม่นับที่หมดเวลา/ถูกปฏิเสธ/ยกเลิก)
+_COUNTED_BOOKINGS = (booking.PENDING_PAYMENT, booking.PENDING_REVIEW, booking.APPROVED)
+
+
 @app.get("/admin/events")
 def list_events():
+    """ทุกงานรวมฉบับร่าง ใหม่สุดก่อน + status, bookingCount, revenue (ยอดที่อนุมัติแล้ว) ต่องาน"""
     require_group(app, ADMIN_GROUP)
+    now = clock.now()
+    counts: dict[str, int] = defaultdict(int)
+    revenue: dict[str, int] = defaultdict(int)
+    now_iso = clock.iso(now)
+    for item in db.scan_all("bookings"):
+        # PENDING_PAYMENT ที่เลยเวลาแล้วแต่ยังไม่ถูกเปลี่ยนเป็น EXPIRED ไม่นับ
+        lapsed = item["status"] == booking.PENDING_PAYMENT and item["expiresAt"] <= now_iso
+        if item["status"] in _COUNTED_BOOKINGS and not lapsed:
+            counts[item["eventId"]] += 1
+        if item["status"] == booking.APPROVED:
+            revenue[item["eventId"]] += int(item.get("amount", 0))
     items = db.scan_all("events")
     items.sort(key=lambda item: item.get("createdAt", ""), reverse=True)
-    return {"items": items}
+    return {
+        "items": [
+            {
+                **item,
+                "status": events.display_status(item, now),
+                "bookingCount": counts[item["eventId"]],
+                "revenue": revenue[item["eventId"]],
+            }
+            for item in items
+        ]
+    }
 
 
 @logger.inject_lambda_context

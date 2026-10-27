@@ -1,20 +1,24 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
+import { isApiError } from '../../api/client'
+import type { EventInputDto, LotInputDto, UserDto } from '../../api/dto'
 import { EventStatusBadge } from '../../components/common/StatusBadge'
 import BulkLotForm from '../../components/organizer/editor/BulkLotForm'
-import DayPricingTable, { type EditorDay } from '../../components/organizer/editor/DayPricingTable'
 import EditorSummary from '../../components/organizer/editor/EditorSummary'
 import EditorToolbar, { ERASE } from '../../components/organizer/editor/EditorToolbar'
 import GridSizeControl from '../../components/organizer/editor/GridSizeControl'
 import MapCanvas from '../../components/organizer/editor/MapCanvas'
 import ZoneSettingsTable from '../../components/organizer/editor/ZoneSettingsTable'
+import ConfirmDialog from '../../components/popup/ConfirmDialog'
 import { BANKS, EVENT_TYPES } from '../../data/options'
-import { EVENT_DEFAULTS, GRID_LIMITS, LIMITS, WEEKEND_SURCHARGE } from '../../data/settings'
+import { EVENT_DEFAULTS, GRID_LIMITS, LIMITS } from '../../data/settings'
 import { DEFAULT_ZONES, NEW_ZONE, ZONE_LETTERS } from '../../data/zones'
-import { useAppStore, useEvent, useOrganizerData } from '../../hooks/useAppStore'
+import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import type { CellType, EventRecord, EventType, MarketEvent, Organizer, PaymentAccount, PublishStatus, Zone } from '../../types'
-import { addDays, dayLabel, diffDays, fullTitle, isWeekend, rangeLabel, TODAY } from '../../utils/format'
+import { useEventLots } from '../../queries/events'
+import { useCloseEvent, useMyEvents, useSaveEvent, type SaveEventError } from '../../queries/organizer'
+import type { CellType, EventType, PaymentAccount, PublicEvent, Zone } from '../../types'
+import { addDays, bangkokDate, bangkokEndOfDay, bangkokStartOfDay, diffDays, fullTitle, rangeLabel, TODAY } from '../../utils/format'
 import {
   cellSizes,
   cellsRemovedBy,
@@ -36,8 +40,8 @@ import SelectBox from '../../components/common/SelectBox'
 
 const MAX_DAYS = LIMITS.maxEventDays
 
-/** รหัสงานใหม่จากเวลาที่สร้าง */
-const newEventId = () => `e${Date.now().toString(36)}`
+/** เวลาแนบสลิปเริ่มต้น 24 ชม. backend รับ 2 นาที – 7 วัน (สั้นๆ ใช้ทดสอบหมดเวลา) */
+const SLIP_MINUTES = { default: 24 * 60, min: 2, max: 7 * 24 * 60 }
 
 type LayoutPart = Pick<EditorForm, 'layout' | 'cols' | 'zones' | 'lotSizes'>
 
@@ -71,12 +75,13 @@ interface EditorForm {
   start: string
   end: string
   hours: string
+  /** วันที่ตามเวลาไทย ส่งเป็นต้นวัน / ท้ายวัน */
   bookingOpens: string
   bookingCloses: string
   payment: PaymentAccount
   maxLotsPerSeller: number | null
+  slipDeadlineMinutes: number
   description: string
-  autoApprove: boolean
   cols: number
   rows: number
   layout: CellType[]
@@ -85,23 +90,22 @@ interface EditorForm {
   /** ช่องนี้มาจากช่องไหนของผังที่บันทึกไว้ (-1 = ช่องใหม่) ใช้ตรวจว่าล็อกที่มีการจองเลื่อนตำแหน่งหรือไม่ */
   origins: number[]
   zones: Zone[]
-  surcharges: Record<string, number>
 }
 
-function fromEvent(e: MarketEvent): EditorForm {
+function fromEvent(e: PublicEvent): EditorForm {
   return {
     title: fullTitle(e),
     type: e.type,
     venue: e.venue,
-    start: e.days[0].date,
-    end: e.days.at(-1)!.date,
+    start: e.startDate,
+    end: e.endDate,
     hours: e.hours,
-    bookingOpens: e.bookingOpens,
-    bookingCloses: e.bookingCloses,
-    payment: { ...e.payment },
+    bookingOpens: bangkokDate(e.bookingOpensAt),
+    bookingCloses: bangkokDate(e.bookingClosesAt),
+    payment: e.payment ? { ...e.payment } : { bank: BANKS[0], accountName: '', accountNo: '' },
     maxLotsPerSeller: e.maxLotsPerSeller,
+    slipDeadlineMinutes: e.slipDeadlineMinutes,
     description: e.description,
-    autoApprove: e.autoApprove,
     cols: e.cols,
     rows: e.rows,
     layout: [...e.layout],
@@ -109,11 +113,11 @@ function fromEvent(e: MarketEvent): EditorForm {
     lotSizes: { ...e.lotSizes },
     origins: e.layout.map((_, i) => i),
     zones: e.zones.map((z) => ({ ...z })),
-    surcharges: Object.fromEntries(e.days.map((d) => [d.date, d.surcharge])),
   }
 }
 
-function blankForm(organizer: Organizer): EditorForm {
+/** งานใหม่ บัญชีรับโอนเติมจากโปรไฟล์ผู้จัดงาน (F32) */
+function blankForm(me: UserDto): EditorForm {
   const start = addDays(TODAY, 30)
   const opens = addDays(start, -EVENT_DEFAULTS.opensDaysBefore)
   return {
@@ -125,10 +129,10 @@ function blankForm(organizer: Organizer): EditorForm {
     hours: '16:00–23:00 น.',
     bookingOpens: opens < TODAY ? TODAY : opens,
     bookingCloses: addDays(start, -EVENT_DEFAULTS.closesDaysBefore),
-    payment: organizer.payment ? { ...organizer.payment } : { bank: BANKS[0], accountName: organizer.name, accountNo: organizer.phone ?? '' },
+    payment: me.payment ? { ...me.payment } : { bank: BANKS[0], accountName: me.orgName ?? '', accountNo: me.phone ?? '' },
     maxLotsPerSeller: EVENT_DEFAULTS.maxLotsPerSeller,
+    slipDeadlineMinutes: SLIP_MINUTES.default,
     description: '',
-    autoApprove: false,
     cols: STANDARD_COLS,
     rows: STANDARD_ROWS,
     layout: emptyLayout(),
@@ -136,16 +140,72 @@ function blankForm(organizer: Organizer): EditorForm {
     lotSizes: {},
     origins: emptyLayout().map(() => -1),
     zones: DEFAULT_ZONES.map((z) => ({ ...z, amenities: [...z.amenities] })),
-    surcharges: {},
   }
+}
+
+/** ข้อมูลงานสำหรับ POST /events และ PUT /events/{id} (F10) */
+function toEventInput(
+  form: EditorForm,
+  title: string,
+  round: string | undefined,
+  offCells: number[],
+  lotSizes: Record<string, string>,
+): EventInputDto {
+  return {
+    title,
+    round: round ?? null,
+    type: form.type,
+    description: form.description.trim(),
+    venue: form.venue.trim(),
+    hours: form.hours.trim(),
+    startDate: form.start,
+    endDate: form.end,
+    // เปิดตั้งแต่ต้นวันแรก ถึงท้ายวันสุดท้ายของช่วงรับจอง (เวลาไทย)
+    bookingOpensAt: bangkokStartOfDay(form.bookingOpens),
+    bookingClosesAt: bangkokEndOfDay(form.bookingCloses),
+    payment: { bank: form.payment.bank, accountName: form.payment.accountName.trim(), accountNo: form.payment.accountNo.trim() },
+    maxLotsPerSeller: form.maxLotsPerSeller,
+    slipDeadlineMinutes: form.slipDeadlineMinutes,
+    zones: form.zones,
+    cols: form.cols,
+    rows: form.rows,
+    layout: form.layout,
+    disabledCells: offCells,
+    lotSizes,
+  }
+}
+
+/** ล็อกทุกล็อกตามผัง สำหรับ PUT /events/{id}/lots (F12) */
+function lotsOfForm(form: EditorForm, offCells: number[], lotSizes: Record<string, string>): LotInputDto[] {
+  const codes = lotCodes(form.layout)
+  return form.layout.flatMap((cell, i) => {
+    const code = codes[i]
+    return code && isZoneCell(cell) ? [{ lotId: code, zoneId: cell, size: lotSizes[String(i)] ?? null, disabled: offCells.includes(i) }] : []
+  })
+}
+
+/** ข้อความจาก error ของ backend ตอนบันทึก */
+function saveErrorMessage(error: unknown): string {
+  if (isApiError(error, 'LOT_IN_USE')) {
+    const ids = (error.details as { lotIds?: string[] } | undefined)?.lotIds ?? []
+    return `ล็อก ${ids.join(', ')} มีผู้จองอยู่ แก้ไขหรือลบไม่ได้ ย้อนการแก้ล็อกนี้แล้วบันทึกใหม่`
+  }
+  if (isApiError(error, 'VALIDATION_ERROR')) {
+    const first = (error.details as { field: string; message: string }[] | undefined)?.[0]
+    return first ? `ข้อมูลไม่ถูกต้อง: ${first.field || 'งาน'} ${first.message}` : error.message
+  }
+  return error instanceof Error ? error.message : 'บันทึกไม่สำเร็จ'
 }
 
 export default function MapEditorPage() {
   const { eventId } = useParams()
-  const event = useEvent(eventId)
-  const { organizer } = useOrganizerData()
+  const { me } = useAuth()
+  const { data: myEvents, isPending } = useMyEvents()
+  const event = eventId ? myEvents?.find((e) => e.id === eventId) : undefined
 
-  if (eventId && (!event || event.organizerId !== organizer.id)) {
+  if (!me) return null
+  if (eventId && isPending) return <p className="py-16 text-center text-muted">กำลังโหลดงาน…</p>
+  if (eventId && !event) {
     return (
       <section className="py-16 text-center">
         <h1 className="font-display text-3xl font-bold">ไม่พบงานนี้</h1>
@@ -156,33 +216,39 @@ export default function MapEditorPage() {
     )
   }
   // key ทำให้ฟอร์มเริ่มใหม่เมื่อสลับไปแก้งานอื่นหรือสร้างงานใหม่
-  return <MapEditor key={eventId ?? 'new'} existing={event} organizer={organizer} />
+  return <MapEditor key={eventId ?? 'new'} existing={event} me={me} />
 }
 
-function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer: Organizer }) {
+function MapEditor({ existing, me }: { existing?: PublicEvent; me: UserDto }) {
   const navigate = useNavigate()
   const toast = useToast()
-  const { bookings, saveEvent } = useAppStore()
-  const [form, setForm] = useState<EditorForm>(() => (existing ? fromEvent(existing) : blankForm(organizer)))
+  const save = useSaveEvent()
+  const close = useCloseEvent()
+  const [confirmClose, setConfirmClose] = useState(false)
+  // สถานะล็อกจริงของงานที่เผยแพร่แล้ว (ฉบับร่างยังไม่มีใครจอง)
+  const { data: lotStates } = useEventLots(existing && existing.publishStatus !== 'draft' ? existing.id : undefined)
+  const [form, setForm] = useState<EditorForm>(() => (existing ? fromEvent(existing) : blankForm(me)))
   const [tool, setTool] = useState<string>(form.zones[0]?.id ?? ERASE)
   // เตือนเรื่องพื้นที่ไม่พอครั้งเดียวต่อการลากหนึ่งเส้น
   const warned = useRef(false)
 
   const status = existing?.status ?? 'draft'
-  const publishStatus: PublishStatus = existing?.publishStatus ?? 'draft'
-  const hasBookings = !!existing && bookings.some((b) => b.eventId === existing.id && b.status !== 'cancelled' && b.status !== 'rejected')
+  const publishStatus = existing?.publishStatus ?? 'draft'
+  // งานที่ปิดแล้ว backend ไม่ให้แก้ (EVENT_CLOSED)
+  const readOnly = publishStatus === 'closed'
+  const busy = save.isPending || close.isPending
+  // ล็อกที่มีผู้จองหรือรอสลิปอยู่ ห้ามลบหรือเลื่อนรหัส
+  const bookedCodes = Object.entries(lotStates ?? {})
+    .filter(([, state]) => state === 'pending' || state === 'booked')
+    .map(([code]) => code)
+  const hasBookings = bookedCodes.length > 0
 
   const set = <K extends keyof EditorForm>(key: K, value: EditorForm[K]) => setForm((f) => ({ ...f, [key]: value }))
   const setPayment = (patch: Partial<PaymentAccount>) => setForm((f) => ({ ...f, payment: { ...f.payment, ...patch } }))
 
+  // จองทั้งงาน ราคาต่อล็อก = ราคาโซน ไม่มีราคารายวัน (F11)
   const span = diffDays(form.start, form.end)
-  const days: EditorDay[] =
-    span < 0 || span >= MAX_DAYS
-      ? []
-      : Array.from({ length: span + 1 }, (_, i) => {
-          const date = addDays(form.start, i)
-          return { date, label: dayLabel(date), surcharge: form.surcharges[date] ?? (isWeekend(date) ? WEEKEND_SURCHARGE : 0) }
-        })
+  const dayCount = span < 0 || span >= MAX_DAYS ? 0 : span + 1
 
   const offCells = form.disabledCells.filter((i) => isZoneCell(form.layout[i]))
   const counts: Record<string, number> = {}
@@ -213,6 +279,7 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
 
   /** ตรวจก่อนวาด ล็อกที่ใหญ่กว่า 2×2 ม. ต้องมีช่องว่างด้านขวา/ล่างพอ ไม่งั้นไม่วาดและเตือน */
   const paintChecked = (i: number) => {
+    if (readOnly) return
     const value = tool === ERASE ? '' : tool
     const next = withCell(form, i, value)
     const bad = form.layout[i] === value ? [] : newConflicts(form, next)
@@ -327,15 +394,17 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
     if (tool === id) setTool(zones[0].id)
   }
 
-  const save = (nextStatus: PublishStatus) => {
+  /** บันทึกงาน (publish = เผยแพร่ฉบับร่างด้วย) */
+  const submit = (publish: boolean) => {
+    if (readOnly || busy) return
     const title = form.title.trim()
     if (!title) return toast('ใส่ชื่องานก่อนบันทึก', 'danger')
-    if (!days.length) return toast(`วันสุดท้ายต้องไม่ก่อนวันเริ่ม และจัดได้ไม่เกิน ${MAX_DAYS} วัน`, 'danger')
+    if (!dayCount) return toast(`วันสุดท้ายต้องไม่ก่อนวันเริ่ม และจัดได้ไม่เกิน ${MAX_DAYS} วัน`, 'danger')
     if (windowError) return toast(windowError, 'danger')
+    // backend ต้องมีสถานที่และบัญชีรับโอนตั้งแต่ฉบับร่าง
+    if (!form.venue.trim()) return toast('ใส่สถานที่ก่อนบันทึก', 'danger')
+    if (!form.payment.accountName.trim() || !form.payment.accountNo.trim()) return toast('ใส่บัญชีรับโอนก่อนบันทึก', 'danger')
     if (existing) {
-      const bookedCodes = [
-        ...new Set(bookings.filter((b) => b.eventId === existing.id && (b.status === 'pending' || b.status === 'approved')).map((b) => b.lot)),
-      ]
       const moved = movedBookedLots(existing.layout, form.layout, form.origins, bookedCodes)
       if (moved.length) {
         return toast(
@@ -344,45 +413,41 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
         )
       }
     }
-    if (nextStatus === 'open') {
+    if (publish || publishStatus === 'open') {
       if (!totalLots) return toast('วาดล็อกบนผังอย่างน้อยหนึ่งช่องก่อนเปิดรับจอง', 'danger')
-      if (!form.venue.trim()) return toast('ใส่สถานที่ก่อนเปิดรับจอง', 'danger')
-      if (!form.payment.accountName.trim() || !form.payment.accountNo.trim()) return toast('ใส่บัญชีรับโอนก่อนเปิดรับจอง', 'danger')
       if (form.zones.some((z) => counts[z.id] && z.price <= 0)) return toast('ตั้งราคาทุกโซนที่มีล็อกก่อนเปิดรับจอง', 'danger')
     }
 
     const keepTitle = existing && title === fullTitle(existing)
-    const event: EventRecord = {
-      id: existing?.id ?? newEventId(),
-      type: form.type,
-      status: nextStatus,
-      title: keepTitle ? existing.title : title,
-      round: keepTitle ? existing.round : undefined,
-      organizerId: organizer.id,
-      venue: form.venue.trim(),
-      hours: form.hours.trim(),
-      description: form.description.trim(),
-      bookingOpens: form.bookingOpens,
-      bookingCloses: form.bookingCloses,
-      payment: { bank: form.payment.bank, accountName: form.payment.accountName.trim(), accountNo: form.payment.accountNo.trim() },
-      maxLotsPerSeller: form.maxLotsPerSeller,
-      autoApprove: form.autoApprove,
-      days: days.map((d) => ({ date: d.date, surcharge: d.surcharge })),
-      zones: form.zones,
-      cols: form.cols,
-      rows: form.rows,
-      layout: form.layout,
-      disabledCells: offCells,
-      lotSizes: Object.fromEntries(customSizes.map((c) => [String(c.index), c.size])),
-    }
-    saveEvent(event)
-    const messages: Record<PublishStatus, string> = {
-      draft: 'บันทึกร่างแล้ว',
-      open: publishStatus === 'open' ? 'บันทึกการแก้ไขแล้ว' : 'เผยแพร่งานแล้ว ผู้ขายจองได้ตามช่วงเปิดรับจอง',
-      closed: publishStatus === 'closed' ? 'บันทึกการแก้ไขแล้ว' : 'ปิดรับจองแล้ว',
-    }
-    toast(messages[nextStatus])
-    if (!existing) navigate(`/organizer/editor/${event.id}`, { replace: true })
+    const lotSizes = Object.fromEntries(customSizes.map((c) => [String(c.index), c.size]))
+    save.mutate(
+      {
+        eventId: existing?.id,
+        previousZones: existing?.zones ?? [],
+        input: toEventInput(form, keepTitle ? existing.title : title, keepTitle ? existing.round : undefined, offCells, lotSizes),
+        lots: lotsOfForm(form, offCells, lotSizes),
+        publish,
+      },
+      {
+        onSuccess: (saved) => {
+          toast(publish ? 'เผยแพร่งานแล้ว ผู้ขายจองได้ตามช่วงเปิดรับจอง' : publishStatus === 'open' ? 'บันทึกการแก้ไขแล้ว' : 'บันทึกร่างแล้ว')
+          // ผังที่บันทึกแล้วกลายเป็นตำแหน่งตั้งต้นของการแก้ครั้งต่อไป
+          setForm((f) => ({ ...f, origins: f.layout.map((_, i) => i) }))
+          if (!existing) navigate(`/organizer/editor/${saved.id}`, { replace: true })
+        },
+        onError: (error) => {
+          toast(saveErrorMessage(error), 'danger')
+          // สร้างงานไปแล้วแต่ขั้นต่อไปล้ม ไปแก้ต่อจากงานนั้น ไม่สร้างซ้ำ
+          const savedId = (error as SaveEventError).savedEventId
+          if (!existing && savedId) navigate(`/organizer/editor/${savedId}`, { replace: true })
+        },
+      },
+    )
+  }
+
+  const closeBooking = () => {
+    setConfirmClose(false)
+    if (existing) close.mutate(existing.id, { onSuccess: () => toast('ปิดรับจองแล้ว') })
   }
 
   return (
@@ -395,47 +460,69 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
           value={form.title}
           onChange={(e) => set('title', e.target.value)}
           placeholder="ตั้งชื่องาน"
+          readOnly={readOnly}
+          maxLength={200}
           className="font-display text-[clamp(1.7rem,3.5vw,2.6rem)] font-bold bg-transparent outline-none border-b-2 border-transparent focus:border-cobalt min-w-0 flex-1 basis-64 placeholder:text-muted/50"
           aria-label="ชื่องาน"
         />
         <div className="flex gap-3 items-center">
           <EventStatusBadge status={status} />
-          {status === 'draft' && (
+          {publishStatus === 'draft' && (
             <>
               <button
                 type="button"
-                onClick={() => save('draft')}
-                className="border-[1.5px] border-cobalt text-cobalt rounded-xl px-4 py-2.5 font-semibold hover:bg-cobalt/5"
+                disabled={busy}
+                onClick={() => submit(false)}
+                className="border-[1.5px] border-cobalt text-cobalt rounded-xl px-4 py-2.5 font-semibold hover:bg-cobalt/5 disabled:opacity-50"
               >
                 บันทึกร่าง
               </button>
-              <button type="button" onClick={() => save('open')} className="bg-cobalt text-oncobalt rounded-xl px-4 py-2.5 font-semibold press">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => submit(true)}
+                className="bg-cobalt text-oncobalt rounded-xl px-4 py-2.5 font-semibold press disabled:opacity-50"
+              >
                 เผยแพร่งาน
               </button>
             </>
           )}
-          {status !== 'draft' && status !== 'ended' && (
-            <button
-              type="button"
-              onClick={() => save(publishStatus === 'open' ? 'closed' : 'open')}
-              className="border-[1.5px] border-cobalt text-cobalt rounded-xl px-4 py-2.5 font-semibold hover:bg-cobalt/5"
-            >
-              {publishStatus === 'open' ? 'ปิดงาน' : 'เปิดงานอีกครั้ง'}
-            </button>
+          {publishStatus === 'open' && (
+            <>
+              {status !== 'ended' && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmClose(true)}
+                  className="border-[1.5px] border-cobalt text-cobalt rounded-xl px-4 py-2.5 font-semibold hover:bg-cobalt/5 disabled:opacity-50"
+                >
+                  ปิดรับจอง
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => submit(false)}
+                className="bg-cobalt text-oncobalt rounded-xl px-4 py-2.5 font-semibold press disabled:opacity-50"
+              >
+                บันทึกการแก้ไข
+              </button>
+            </>
           )}
-          {status !== 'draft' && (
-            <button
-              type="button"
-              onClick={() => save(publishStatus)}
-              className="bg-cobalt text-oncobalt rounded-xl px-4 py-2.5 font-semibold press"
-            >
-              บันทึกการแก้ไข
-            </button>
-          )}
+          {busy && <span className="text-sm text-muted">กำลังบันทึก…</span>}
         </div>
       </div>
+      {readOnly && <p className="mt-4 rounded-xl bg-mist px-4 py-3 text-sm">งานนี้ปิดรับจองแล้ว ดูผังได้อย่างเดียว แก้ไขหรือเปิดใหม่ไม่ได้</p>}
+      <ConfirmDialog
+        open={confirmClose}
+        title="ปิดรับจอง"
+        message="ผู้ขายจะจองงานนี้เพิ่มไม่ได้ การจองที่มีอยู่ยังตรวจและอนุมัติต่อได้ ปิดแล้วเปิดใหม่หรือแก้ไขงานไม่ได้"
+        confirmLabel="ปิดรับจอง"
+        onConfirm={closeBooking}
+        onClose={() => setConfirmClose(false)}
+      />
 
-      <div className="mt-8 grid xl:grid-cols-[1fr_300px] gap-8 items-start">
+      <fieldset disabled={readOnly} className="mt-8 grid xl:grid-cols-[1fr_300px] gap-8 items-start min-w-0">
         <div className="space-y-8 min-w-0">
           <section className="bg-surface border border-line rounded-2xl p-6">
             <h2 className="font-display text-xl font-semibold">ข้อมูลงาน</h2>
@@ -446,7 +533,13 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
               </label>
               <label>
                 <span className="text-sm font-semibold">สถานที่</span>
-                <input value={form.venue} onChange={(e) => set('venue', e.target.value)} className="fld mt-2" placeholder="เช่น ลานกิจกรรม อาคารเรียนรวม" />
+                <input
+                  value={form.venue}
+                  maxLength={300}
+                  onChange={(e) => set('venue', e.target.value)}
+                  className="fld mt-2"
+                  placeholder="เช่น ลานกิจกรรม อาคารเรียนรวม"
+                />
               </label>
               <label>
                 <span className="text-sm font-semibold">วันเริ่มงาน</span>
@@ -470,7 +563,7 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
                 />
               </label>
               {hasBookings && <p className="sm:col-span-2 -mt-2 text-sm text-muted">งานนี้มีการจองแล้ว จึงเปลี่ยนวันงานไม่ได้</p>}
-              {!hasBookings && !days.length && (
+              {!hasBookings && !dayCount && (
                 <p className="sm:col-span-2 -mt-2 text-sm text-danger">วันสุดท้ายต้องไม่ก่อนวันเริ่ม และจัดได้ไม่เกิน {MAX_DAYS} วัน</p>
               )}
               <label>
@@ -499,7 +592,7 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
               </p>
               <label>
                 <span className="text-sm font-semibold">เวลาขาย</span>
-                <input value={form.hours} onChange={(e) => set('hours', e.target.value)} className="fld mt-2" />
+                <input value={form.hours} maxLength={100} onChange={(e) => set('hours', e.target.value)} className="fld mt-2" />
               </label>
               <label>
                 <span className="text-sm font-semibold">จำนวนล็อกสูงสุดต่อผู้ขาย</span>
@@ -508,32 +601,45 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
                   inputMode="numeric"
                   value={form.maxLotsPerSeller ?? ''}
                   onChange={(e) => {
-                    // เว้นว่าง = ไม่จำกัด ผู้ขายจองทีละล็อกได้เรื่อยๆ
+                    // เว้นว่าง = ไม่จำกัด
                     const n = Number(e.target.value.replace(/\D/g, ''))
-                    set('maxLotsPerSeller', n >= 1 ? n : null)
+                    set('maxLotsPerSeller', n >= 1 ? Math.min(n, 50) : null)
                   }}
                   placeholder="ไม่จำกัด"
                   className="fld mt-2"
                   aria-label="จำนวนล็อกสูงสุดต่อผู้ขาย"
                 />
                 <span className="block mt-1 text-xs text-muted">
-                  {form.maxLotsPerSeller === null ? 'เว้นว่างไว้ ผู้ขายหนึ่งร้านจองได้ไม่จำกัด (จองทีละล็อก)' : `ผู้ขายหนึ่งร้านจองได้ไม่เกิน ${form.maxLotsPerSeller} ล็อก (จองทีละล็อก) ลบเลขออกถ้าไม่ต้องการจำกัด`}
+                  {form.maxLotsPerSeller === null
+                    ? 'เว้นว่างไว้ ผู้ขายหนึ่งร้านจองได้ไม่จำกัด'
+                    : `ผู้ขายหนึ่งร้านจองได้ไม่เกิน ${form.maxLotsPerSeller} ล็อก ลบเลขออกถ้าไม่ต้องการจำกัด`}
+                </span>
+              </label>
+              <label>
+                <span className="text-sm font-semibold">เวลาแนบสลิปหลังจอง (นาที)</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.slipDeadlineMinutes || ''}
+                  onChange={(e) => set('slipDeadlineMinutes', Number(e.target.value.replace(/\D/g, '')) || 0)}
+                  onBlur={() => set('slipDeadlineMinutes', Math.min(SLIP_MINUTES.max, Math.max(SLIP_MINUTES.min, form.slipDeadlineMinutes)))}
+                  className="fld mt-2"
+                  aria-label="เวลาแนบสลิปหลังจอง (นาที)"
+                />
+                <span className="block mt-1 text-xs text-muted">
+                  ไม่แนบสลิปภายในเวลานี้ การจองหมดเวลาและล็อกกลับมาว่าง (1440 = 24 ชม. ได้ {SLIP_MINUTES.min}–{SLIP_MINUTES.max} นาที)
                 </span>
               </label>
               <label className="sm:col-span-2">
                 <span className="text-sm font-semibold">รายละเอียดและกติกาสำหรับผู้ขาย</span>
-                <textarea rows={3} value={form.description} onChange={(e) => set('description', e.target.value)} className="fld mt-2" />
-              </label>
-              <label className="sm:col-span-2 flex items-center gap-3">
-                <input type="checkbox" checked={form.autoApprove} onChange={(e) => set('autoApprove', e.target.checked)} className="w-4 h-4" />{' '}
-                อนุมัติอัตโนมัติเมื่อสลิปถูกต้องและยอดตรง
+                <textarea rows={3} maxLength={5000} value={form.description} onChange={(e) => set('description', e.target.value)} className="fld mt-2" />
               </label>
             </div>
           </section>
 
           <section className="bg-surface border border-line rounded-2xl p-6">
             <h2 className="font-display text-xl font-semibold">บัญชีรับโอน</h2>
-            <p className="text-sm text-muted mt-1">ผู้ขายจะเห็นบัญชีนี้ตอนโอนเงินและแนบสลิป</p>
+            <p className="text-sm text-muted mt-1">ผู้ขายจะเห็นบัญชีนี้ตอนโอนเงินและแนบสลิป{!existing && ' ค่าตั้งต้นมาจากข้อมูลผู้จัดงาน'}</p>
             <div className="mt-5 grid sm:grid-cols-3 gap-5">
               <label>
                 <span className="text-sm font-semibold">ธนาคาร</span>
@@ -541,11 +647,11 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
               </label>
               <label>
                 <span className="text-sm font-semibold">ชื่อบัญชี</span>
-                <input value={form.payment.accountName} onChange={(e) => setPayment({ accountName: e.target.value })} className="fld mt-2" />
+                <input value={form.payment.accountName} maxLength={100} onChange={(e) => setPayment({ accountName: e.target.value })} className="fld mt-2" />
               </label>
               <label>
                 <span className="text-sm font-semibold">{form.payment.bank === 'พร้อมเพย์' ? 'เบอร์หรือเลขบัตรพร้อมเพย์' : 'เลขบัญชี'}</span>
-                <input value={form.payment.accountNo} onChange={(e) => setPayment({ accountNo: e.target.value })} className="fld mt-2" />
+                <input value={form.payment.accountNo} maxLength={30} onChange={(e) => setPayment({ accountNo: e.target.value })} className="fld mt-2" />
               </label>
             </div>
           </section>
@@ -585,10 +691,13 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
                 ล็อก {conflicts.map((i) => codes[i]).join(', ')} พื้นที่ไม่พอสำหรับขนาดที่ตั้งไว้ (กรอบแดง แสดงย่อในช่องเดียว) ลบหรือย้ายสิ่งที่อยู่ทางขวา/ด้านล่างของล็อก หรือลดขนาดล็อก
               </p>
             )}
+            {hasBookings && (
+              <p className="mt-3 text-sm text-muted">ล็อกที่มีการจองแล้ว ({bookedCodes.sort().join(', ')}) ห้ามลบหรือทำให้รหัสเลื่อน วาดล็อกใหม่ไว้หลังล็อกเดิม</p>
+            )}
             <BulkLotForm zones={form.zones} emptyCells={freeCells} onAdd={addLots} />
             <ZoneSettingsTable
               zones={form.zones}
-              days={days}
+              dayCount={dayCount}
               counts={counts}
               offCounts={offCounts}
               onChange={(id, patch) => tryUpdate((f) => ({ ...f, zones: f.zones.map((z) => (z.id === id ? { ...z, ...patch } : z)) }))}
@@ -596,16 +705,10 @@ function MapEditor({ existing, organizer }: { existing?: MarketEvent; organizer:
               onRemove={removeZone}
             />
           </section>
-
-          <DayPricingTable
-            days={days}
-            zones={form.zones}
-            onChange={(date, surcharge) => set('surcharges', { ...form.surcharges, [date]: surcharge })}
-          />
         </div>
 
-        <EditorSummary zones={form.zones} counts={bookable} days={days} />
-      </div>
+        <EditorSummary zones={form.zones} counts={bookable} dayCount={dayCount} />
+      </fieldset>
     </section>
   )
 }

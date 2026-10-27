@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { NOTIFICATION_ICON } from '../../data/options'
 import { LIMITS } from '../../data/settings'
-import { useAppStore } from '../../hooks/useAppStore'
 import { useAuth } from '../../hooks/useAuth'
+import { useMarkNotificationsRead, useNotifications } from '../../queries/notifications'
 import type { AppNotification } from '../../types'
 import { dateTimeLabel } from '../../utils/format'
 
@@ -12,11 +12,12 @@ interface NotificationBellProps {
   align?: 'left' | 'right'
 }
 
-/** กระดิ่งแจ้งเตือนในเว็บ แสดงจำนวนที่ยังไม่อ่าน กดรายการเพื่ออ่านและไปยังหน้าที่เกี่ยวข้อง */
+/** กระดิ่งแจ้งเตือนในเว็บ (poll GET /notifications) แสดงจำนวนที่ยังไม่อ่าน กดรายการเพื่ออ่านและไปยังหน้าที่เกี่ยวข้อง */
 export default function NotificationBell({ align = 'right' }: NotificationBellProps) {
   const navigate = useNavigate()
   const { account } = useAuth()
-  const { notifications, markNotificationsRead } = useAppStore()
+  const { data } = useNotifications()
+  const markRead = useMarkNotificationsRead()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -33,13 +34,12 @@ export default function NotificationBell({ align = 'right' }: NotificationBellPr
   }, [open])
 
   if (!account) return null
-  const mine = notifications
-    .filter((n) => n.accountId === account.id)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const unread = mine.filter((n) => !n.read)
+  // backend เรียงใหม่สุดก่อนแล้ว · unreadCount นับทุกรายการ ไม่ใช่แค่ 50 รายการที่ส่งมา
+  const mine = data?.items ?? []
+  const unreadCount = data?.unreadCount ?? 0
 
   const openItem = (n: AppNotification) => {
-    if (!n.read) markNotificationsRead([n.id])
+    if (!n.read) markRead.mutate([n.id])
     setOpen(false)
     if (n.link) navigate(n.link)
   }
@@ -51,16 +51,16 @@ export default function NotificationBell({ align = 'right' }: NotificationBellPr
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={`การแจ้งเตือน ยังไม่อ่าน ${unread.length} รายการ`}
+        aria-label={`การแจ้งเตือน ยังไม่อ่าน ${unreadCount} รายการ`}
         className="relative w-9 h-9 rounded-full grid place-items-center hover:bg-mist"
       >
         <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
           <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" strokeLinecap="round" strokeLinejoin="round" />
           <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" strokeLinecap="round" />
         </svg>
-        {unread.length > 0 && (
+        {unreadCount > 0 && (
           <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 rounded-full bg-danger text-white text-[11px] font-semibold grid place-items-center">
-            {unread.length > 99 ? '99+' : unread.length}
+            {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
@@ -75,10 +75,10 @@ export default function NotificationBell({ align = 'right' }: NotificationBellPr
         >
           <div className="px-4 py-3 border-b border-line flex items-center justify-between">
             <p className="font-semibold">การแจ้งเตือน</p>
-            {unread.length > 0 && (
+            {unreadCount > 0 && (
               <button
                 type="button"
-                onClick={() => markNotificationsRead(unread.map((n) => n.id))}
+                onClick={() => markRead.mutate(undefined)}
                 className="text-sm text-cobalt font-semibold hover:underline underline-offset-4"
               >
                 อ่านทั้งหมด

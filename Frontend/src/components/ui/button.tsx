@@ -54,4 +54,6 @@ function Button({
   )
 }
 
+// ไฟล์จาก shadcn ส่ง buttonVariants ออกไปคู่กับ component ตามแบบของ shadcn
+// eslint-disable-next-line react-refresh/only-export-components
 export { Button, buttonVariants }

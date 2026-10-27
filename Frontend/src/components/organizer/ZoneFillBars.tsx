@@ -1,14 +1,15 @@
-import type { MarketEvent } from '../../types'
+import { zoneFill } from '../../services/organizer'
+import type { LotStates, PublicEvent } from '../../types'
 import { eventLots, zoneClass } from '../../utils/layout'
-import { zoneFill } from '../../utils/pricing'
 
-export default function ZoneFillBars({ event }: { event: MarketEvent }) {
+/** เปอร์เซ็นต์ล็อกที่อนุมัติแล้วในแต่ละโซน */
+export default function ZoneFillBars({ event, states }: { event: PublicEvent; states: LotStates }) {
   const lots = eventLots(event)
   const zones = event.zones.filter((z) => lots.some((l) => l.zone === z.id))
   return (
     <div className="mt-5 space-y-4">
       {zones.map((z) => {
-        const pct = zoneFill(event, z.id)
+        const pct = zoneFill(event, states, z.id)
         return (
           <div key={z.id}>
             <div className="flex justify-between text-sm">

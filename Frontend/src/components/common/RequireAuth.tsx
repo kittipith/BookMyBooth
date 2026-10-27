@@ -18,7 +18,8 @@ interface RequireAuthProps {
  * บัญชีของบทบาทอื่นถูกพากลับหน้าของตัวเอง
  */
 export default function RequireAuth({ role, children, fullScreen = false }: RequireAuthProps) {
-  const { account, openLogin, logout } = useAuth()
+  const { account, openLogin, logout, refreshAccount } = useAuth()
+  const [checking, setChecking] = useState(false)
   const label = ROLE_LABEL[role]
   const signupAllowed = role !== 'admin'
 
@@ -64,8 +65,22 @@ export default function RequireAuth({ role, children, fullScreen = false }: Requ
   if (account?.status === 'pending') {
     return shell(
       'รอผู้ดูแลระบบอนุมัติ',
-      <p>บัญชีผู้จัดงาน {account.email} สมัครเรียบร้อยแล้ว ผู้ดูแลระบบจะตรวจสอบและแจ้งผลในเว็บ เมื่ออนุมัติแล้วหน้านี้จะเปิดใช้งานได้ทันที</p>,
-      logoutButton,
+      <p>บัญชีผู้จัดงาน {account.email} สมัครเรียบร้อยแล้ว ผู้ดูแลระบบจะตรวจสอบและแจ้งผลในเว็บ เมื่ออนุมัติแล้วกดตรวจสอบสถานะเพื่อเริ่มใช้งาน</p>,
+      <>
+        <button
+          type="button"
+          disabled={checking}
+          onClick={async () => {
+            setChecking(true)
+            await refreshAccount()
+            setChecking(false)
+          }}
+          className="border-[1.5px] border-cobalt text-cobalt rounded-xl px-5 py-3 font-semibold hover:bg-cobalt/5 disabled:opacity-60"
+        >
+          {checking ? 'กำลังตรวจสอบ…' : 'ตรวจสอบสถานะอีกครั้ง'}
+        </button>
+        {logoutButton}
+      </>,
     )
   }
   if (account?.status === 'rejected') {

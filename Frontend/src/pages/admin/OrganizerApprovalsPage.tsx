@@ -3,9 +3,11 @@ import Chip from '../../components/common/Chip'
 import { AccountStatusBadge } from '../../components/common/StatusBadge'
 import ReasonDialog from '../../components/popup/ReasonDialog'
 import { ACCOUNT_STATUS_LABEL, ORGANIZER_REJECT_REASONS } from '../../data/options'
-import { useAppStore } from '../../hooks/useAppStore'
+import type { UserDto } from '../../api/dto'
+import { accountStatusFromDto } from '../../api/mappers'
 import { useToast } from '../../hooks/useToast'
-import type { Account, AccountStatus } from '../../types'
+import { useAdminEvents, useAdminUsers, useReviewOrganizer } from '../../queries/admin'
+import type { AccountStatus } from '../../types'
 import { dateTimeLabel } from '../../utils/format'
 
 type Tab = AccountStatus | 'all'
@@ -13,30 +15,30 @@ const TABS: Tab[] = ['pending', 'active', 'rejected', 'suspended', 'all']
 
 /** ผู้ดูแลระบบตรวจและอนุมัติผู้สมัครเป็นผู้จัดงาน */
 export default function OrganizerApprovalsPage() {
-  const { accounts, organizers, events, bookings, reviewOrganizer } = useAppStore()
+  const { data: users = [], isPending, isError } = useAdminUsers()
+  const { data: events = [] } = useAdminEvents()
+  const review = useReviewOrganizer()
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('pending')
-  const [rejecting, setRejecting] = useState<Account | null>(null)
+  const [rejecting, setRejecting] = useState<UserDto | null>(null)
 
-  const orgAccounts = accounts
-    .filter((a) => a.role === 'organizer')
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const count = (t: Tab) => (t === 'all' ? orgAccounts.length : orgAccounts.filter((a) => a.status === t).length)
-  const rows = tab === 'all' ? orgAccounts : orgAccounts.filter((a) => a.status === tab)
-  const orgOf = (a: Account) => organizers.find((o) => o.id === a.organizerId)
+  const statusOf = (u: UserDto) => accountStatusFromDto(u.status)
+  const orgAccounts = users.filter((u) => u.role === 'ORGANIZER').sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const count = (t: Tab) => (t === 'all' ? orgAccounts.length : orgAccounts.filter((u) => statusOf(u) === t).length)
+  const rows = tab === 'all' ? orgAccounts : orgAccounts.filter((u) => statusOf(u) === tab)
+  const nameOf = (u: UserDto) => u.orgName || u.email
 
   const stats = [
-    { label: 'ผู้ใช้ทั้งหมด', value: accounts.length },
-    { label: 'ผู้ขาย', value: accounts.filter((a) => a.role === 'seller').length },
-    { label: 'ผู้จัดงานที่ใช้งานได้', value: accounts.filter((a) => a.role === 'organizer' && a.status === 'active').length },
-    { label: 'งานในระบบ', value: events.filter((e) => e.status !== 'draft').length },
-    { label: 'การจองทั้งหมด', value: bookings.length },
+    { label: 'ผู้ใช้ทั้งหมด', value: users.length },
+    { label: 'ผู้ขาย', value: users.filter((u) => u.role === 'SELLER').length },
+    { label: 'ผู้จัดงานที่ใช้งานได้', value: orgAccounts.filter((u) => u.status === 'ACTIVE').length },
+    { label: 'งานในระบบ', value: events.filter((e) => e.event.publishStatus !== 'draft').length },
+    // การจองที่ยังถือล็อกอยู่ (รอสลิป รอตรวจ อนุมัติแล้ว)
+    { label: 'การจองที่ใช้งานอยู่', value: events.reduce((sum, e) => sum + e.bookingCount, 0) },
   ]
 
-  const approve = (a: Account) => {
-    reviewOrganizer(a.id, true)
-    toast(`อนุมัติ ${orgOf(a)?.name ?? a.email} เป็นผู้จัดงานแล้ว`)
-  }
+  const approve = (u: UserDto) =>
+    review.mutate({ userId: u.userId, approve: true }, { onSuccess: () => toast(`อนุมัติ ${nameOf(u)} เป็นผู้จัดงานแล้ว`) })
 
   return (
     <section>
@@ -74,51 +76,42 @@ export default function OrganizerApprovalsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {rows.map((a) => {
-              const org = orgOf(a)
+            {rows.map((u) => {
+              const status = statusOf(u)
               return (
-                <tr key={a.id}>
+                <tr key={u.userId}>
                   <td className="px-6 py-4">
-                    <p className="font-semibold">{org?.name ?? '-'}</p>
-                    <p className="text-sm text-muted">{a.email}</p>
+                    <p className="font-semibold">{u.orgName || '-'}</p>
+                    <p className="text-sm text-muted">{u.email}</p>
                   </td>
                   <td className="px-4 py-4">
-                    <p>{org?.contactName ?? '-'}</p>
-                    <p className="text-sm text-muted">{org?.phone ?? '-'}</p>
+                    <p>{u.displayName || '-'}</p>
+                    <p className="text-sm text-muted">{u.phone || '-'}</p>
                   </td>
-                  <td className="px-4 py-4 text-sm">
-                    {dateTimeLabel(a.createdAt)}
-                    {!a.emailVerified && <p className="text-xs text-danger">ยังไม่ยืนยันอีเมล</p>}
-                  </td>
+                  <td className="px-4 py-4 text-sm">{dateTimeLabel(u.createdAt)}</td>
                   <td className="px-4 py-4">
-                    <AccountStatusBadge status={a.status} />
-                    {a.statusReason && <p className="mt-1 text-xs text-muted max-w-48">{a.statusReason}</p>}
+                    <AccountStatusBadge status={status} />
+                    {u.statusReason && <p className="mt-1 text-xs text-muted max-w-48">{u.statusReason}</p>}
                   </td>
                   <td className="px-6 py-4 text-right whitespace-nowrap">
-                    {a.status === 'pending' && (
+                    {status === 'pending' && (
                       <>
                         <button
                           type="button"
-                          disabled={!a.emailVerified}
-                          title={a.emailVerified ? undefined : 'รอผู้สมัครยืนยันอีเมลก่อน'}
-                          onClick={() => approve(a)}
+                          disabled={review.isPending}
+                          onClick={() => approve(u)}
                           className="bg-cobalt text-oncobalt rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           อนุมัติ
                         </button>
                         <button
                           type="button"
-                          onClick={() => setRejecting(a)}
+                          onClick={() => setRejecting(u)}
                           className="ml-2 border border-line rounded-lg px-3 py-1.5 text-sm hover:border-danger hover:text-danger"
                         >
                           ไม่อนุมัติ
                         </button>
                       </>
-                    )}
-                    {a.status === 'rejected' && (
-                      <button type="button" onClick={() => approve(a)} className="text-sm text-cobalt font-semibold hover:underline underline-offset-4">
-                        อนุมัติแทน
-                      </button>
                     )}
                   </td>
                 </tr>
@@ -127,7 +120,7 @@ export default function OrganizerApprovalsPage() {
             {!rows.length && (
               <tr>
                 <td colSpan={5} className="px-6 py-14 text-center text-muted">
-                  {tab === 'pending' ? 'ไม่มีผู้สมัครที่รออนุมัติ' : 'ไม่มีบัญชีในหมวดนี้'}
+                  {isPending ? 'กำลังโหลด…' : isError ? 'โหลดรายชื่อไม่ได้' : tab === 'pending' ? 'ไม่มีผู้สมัครที่รออนุมัติ' : 'ไม่มีบัญชีในหมวดนี้'}
                 </td>
               </tr>
             )}
@@ -138,16 +131,22 @@ export default function OrganizerApprovalsPage() {
       <ReasonDialog
         open={!!rejecting}
         title="ไม่อนุมัติผู้จัดงาน"
-        description={rejecting ? `${orgOf(rejecting)?.name ?? rejecting.email} จะได้รับแจ้งเหตุผลนี้ในเว็บ` : ''}
+        description={rejecting ? `${nameOf(rejecting)} จะได้รับแจ้งเหตุผลนี้ในเว็บ` : ''}
         reasons={ORGANIZER_REJECT_REASONS}
         confirmLabel="ไม่อนุมัติ"
         onClose={() => setRejecting(null)}
         onConfirm={(reason) => {
-          if (rejecting) {
-            reviewOrganizer(rejecting.id, false, reason)
-            toast(`ไม่อนุมัติ ${orgOf(rejecting)?.name ?? rejecting.email} แล้ว`)
-          }
-          setRejecting(null)
+          if (!rejecting || review.isPending) return
+          const target = rejecting
+          review.mutate(
+            { userId: target.userId, approve: false, reason },
+            {
+              onSuccess: () => {
+                toast(`ไม่อนุมัติ ${nameOf(target)} แล้ว`)
+                setRejecting(null)
+              },
+            },
+          )
         }}
       />
     </section>

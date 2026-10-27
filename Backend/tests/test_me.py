@@ -93,3 +93,38 @@ def test_organizer_cannot_set_shop_profile_fields(aws):
     )
     assert status == 400
     assert body["error"]["details"] == {"fields": ["line"]}
+
+
+def test_organizer_saves_default_payment(aws):
+    put_user("o1", users.ORGANIZER)
+    payment = {"bank": "กสิกรไทย", "accountName": "ทีมจัดงาน", "accountNo": "123-4-56789-0"}
+
+    status, body = call(
+        lambda_handler, "PUT", "/me", {"payment": payment}, as_user=claims("o1", "Organizer")
+    )
+
+    assert status == 200
+    assert body["payment"] == payment
+    assert get_user("o1")["payment"] == payment
+
+
+def test_payment_is_validated_and_organizer_only(aws):
+    put_user("o1", users.ORGANIZER)
+    put_user("s1", users.SELLER)
+
+    status, body = call(
+        lambda_handler,
+        "PUT",
+        "/me",
+        {"payment": {"bank": "กสิกรไทย"}},
+        as_user=claims("o1", "Organizer"),
+    )
+    assert status == 400
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+    payment = {"bank": "กสิกรไทย", "accountName": "ร้าน", "accountNo": "1"}
+    status, body = call(
+        lambda_handler, "PUT", "/me", {"payment": payment}, as_user=claims("s1", "Seller")
+    )
+    assert status == 400
+    assert body["error"]["code"] == "FIELD_NOT_ALLOWED"

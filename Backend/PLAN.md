@@ -190,9 +190,9 @@ Backend/
 | PK `userId` | Cognito `sub` |
 | GSI `byRoleStatus` | PK `roleStatus` เช่น `ORGANIZER#PENDING`, SK `createdAt` |
 
-ฟิลด์: `email`, `username` (Cognito), `role` (SELLER/ORGANIZER/ADMIN), `status` (ACTIVE/PENDING/REJECTED/SUSPENDED), `statusReason`, `statusChangedBy`, `displayName`, `phone`, `shopName`, `category`, `orgName`, `createdAt`, `updatedAt`
+ฟิลด์: `email`, `username` (Cognito), `role` (SELLER/ORGANIZER/ADMIN), `status` (ACTIVE/PENDING/REJECTED/SUSPENDED), `statusReason`, `statusChangedBy`, `displayName`, `phone`, `shopName`, `category`, `line`, `bio`, `power` (ผู้ขาย), `orgName`, `payment` (ผู้จัดงาน `{bank, accountName, accountNo}`), `createdAt`, `updatedAt`
 
-- ฟิลด์โปรไฟล์ที่แก้เองได้ (`PUT /me`): ผู้ขาย `displayName, phone, shopName, category, line, bio, power` (D5f) · ผู้จัดงาน `displayName, phone, orgName` · Admin `displayName, phone` (อยู่ใน `domain/users.py`)
+- ฟิลด์โปรไฟล์ที่แก้เองได้ (`PUT /me`): ผู้ขาย `displayName, phone, shopName, category, line, bio, power` (D5f) · ผู้จัดงาน `displayName, phone, orgName, payment` (บัญชีรับเงินตั้งต้น ตรวจด้วย `PaymentInput` เหมือนในงาน — I3) · Admin `displayName, phone` (อยู่ใน `domain/users.py`)
 - `roleStatus` และ `username` ไม่ส่งออกไปหน้าเว็บ
 
 ### 4.2 Events
@@ -332,7 +332,7 @@ def lambda_handler(event, context):
 | | `POST /bookings/{id}/cancel` | Seller (ก่อนอนุมัติ) / Organizer (หลังอนุมัติ ต้องมีเหตุผล) |
 | | `GET /events/{id}/bookings?status=` · `POST /bookings/{id}/approve` · `POST /bookings/{id}/reject` · `POST /bookings/{id}/check-in` | Organizer (เจ้าของงาน) |
 | | `GET /organizer/vendors` (สถิติร้านในงานของตัวเอง) | Organizer |
-| **admin** | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST /admin/organizers/{userId}/reject` · `POST /admin/users/{userId}/suspend` · `POST /admin/users/{userId}/unsuspend` · `GET /admin/events` | Admin |
+| **admin** | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST /admin/organizers/{userId}/reject` · `POST /admin/users/{userId}/suspend` · `POST /admin/users/{userId}/unsuspend` · `GET /admin/events` (+ `status`, `bookingCount`, `revenue` ต่องาน) · `GET /admin/users?role=` (route ใหม่ อนุมัติ 2026-10-28) | Admin |
 | **me** | `GET /me` · `PUT /me` | ทุกบทบาท |
 | | `GET /notifications` (คืนรายการ + `unreadCount`) · `POST /notifications/read` (`{ids}` หรือ `{all:true}`) | ทุกบทบาท |
 | **post_confirmation** | Cognito trigger | — |
@@ -469,7 +469,8 @@ Response `201`: `{ groupId, bookings: [...] }`
 - **ปฏิเสธ**: body `{ reason }` (บังคับ) Users `PENDING → REJECTED` + `statusReason` แจ้งเตือน (บัญชียังล็อกอินได้แต่เข้าเมนูผู้จัดงานไม่ได้)
 - **ระงับ**: body `{ reason }` ระงับ Admin ไม่ได้ (409) Users `→ SUSPENDED` **ก่อน** (ข้อ 5.2 กันทุก request ทันที) แล้วค่อย `admin_disable_user` + `admin_user_global_sign_out` ถ้า Cognito ล้มแค่ log ไว้
 - **ยกเลิกการระงับ** (D5d): `POST /admin/users/{userId}/unsuspend` ต้อง SUSPENDED อยู่ (ไม่งั้น 409) → `admin_enable_user` + ใส่ group ตาม role **ก่อน** (เรียกซ้ำได้) แล้ว Users `SUSPENDED → ACTIVE` ล้าง `statusReason` แจ้งเตือน `account_unsuspended` · ผู้จัดงานที่ถูกระงับตอนยังรออนุมัติจะกลายเป็น ACTIVE (ถือว่าอนุมัติไปด้วย ตรงกับ frontend)
-- **งานทั้งหมด**: `GET /admin/events` scan ตาราง Events เรียงใหม่สุดก่อน
+- **งานทั้งหมด**: `GET /admin/events` scan ตาราง Events (รวมฉบับร่าง) เรียงใหม่สุดก่อน ทุกงานเพิ่ม `status` (คำนวณเหมือน `/events`), `bookingCount` = จำนวน Booking ที่ยังถือล็อก (`PENDING_PAYMENT` ที่ยังไม่เลยเวลา, `PENDING_REVIEW`, `APPROVED`) และ `revenue` = ผลรวม `amount` ที่ `APPROVED` (เท่ากับ `/events/{id}/summary`) — scan ตาราง Bookings ครั้งเดียว (I5)
+- **ผู้ใช้ทั้งหมด**: `GET /admin/users?role=SELLER|ORGANIZER|ADMIN` (ไม่ส่ง = ทุกบทบาท) → `{ items: [...] }` โปรไฟล์แบบเดียวกับ `/me` เรียงตาม `createdAt` · มี role → query GSI `byRoleStatus` ทีละสถานะ ไม่มี → scan · role ผิด → `400 INVALID_ROLE` (route ใหม่ I5)
 - เรียก Cognito ด้วย `username` ที่เก็บใน Users (ไม่มีก็ใช้ `userId`) และ `USER_POOL_ID` จาก env (ข้อ 3.4)
 
 ---
@@ -484,6 +485,7 @@ Response `201`: `{ groupId, bookings: [...] }`
 | Flow ครบในเครื่อง | pytest + moto | สร้างงาน → จอง → สลิป → อนุมัติ/ย้าย/ปฏิเสธ/ยกเลิก โดยเรียก handler ต่อกันในเทสต์เดียว |
 | จองซ้ำ | pytest + moto | จองล็อกเดียวกัน 2 ครั้ง ครั้งที่ 2 ต้องได้ `409` และจองหลายล็อกที่มีล็อกไม่ว่างต้องล้มทั้งชุด (ทดสอบ condition ไม่ใช่ความพร้อมกันจริง) |
 | หมดเวลา | pytest + moto | เรียก handler ของ `expire_booking` ตรง ๆ โดยส่งเวลาปัจจุบันเข้าไป (ห้ามเรียก `datetime.now()` ใน domain ให้รับ `now` เป็นพารามิเตอร์) |
+| API จำลองในเครื่อง | pytest + `requests` (`tests/test_local_api.py`) | เปิด `scripts/local_api.py` เป็น process แยก (moto server mode) แล้วเรียกผ่าน HTTP: route สาธารณะ, 401/404/CORS แบบ API Gateway, `/_dev/*`, จอง + อัปโหลดสลิปตรงไป moto (INTEGRATION-PLAN หัวข้อ 4) |
 | Cognito / Scheduler | pytest + moto (`cognito-idp`, `scheduler`) | โค้ดเรียก API ถูกตัว ถูกพารามิเตอร์ เช่น `admin_add_user_to_group`, `create_schedule` · ตรวจสิทธิ์ของ LabRole ไม่ได้ |
 
 ### 10.2 ช่วงที่ 2 — บน AWS (สัปดาห์ 11)
@@ -588,6 +590,8 @@ Frontend ใน `Frontend/src/types.ts` มีความสามารถม�
 
 รายการนี้รวมทุกอย่างที่ frontend (`Frontend/src`) ต้องเปลี่ยนเพื่อใช้กับ backend จริง ทุกครั้งที่ backend เพิ่มหรือเปลี่ยน API ให้เพิ่มแถวที่นี่ด้วย (สถานะติดตามใน PROGRESS.md หัวข้อ "งานฝั่ง Frontend")
 
+> ลำดับการทำ (เฟส 0–9), โครงไฟล์ใหม่ (`src/api`, `src/auth`, `src/queries`) และ API จำลองในเครื่อง อยู่ใน [INTEGRATION-PLAN.md](../INTEGRATION-PLAN.md)
+
 ### 15.1 ทั่วไป
 | # | เรื่อง | ต้องแก้อะไร | อ้างอิง |
 |---|---|---|---|
@@ -602,8 +606,8 @@ Frontend ใน `Frontend/src/types.ts` มีความสามารถม�
 |---|---|---|---|
 | F6 | สมัคร | `signUp` ส่ง `custom:role` = `seller`/`organizer` · `confirmSignUp` ส่งโปรไฟล์ใน `options.clientMetadata: { name, phone, orgName, category }` (string ทั้งหมด) · เก็บค่าฟอร์มใน `sessionStorage` ระหว่างรอ OTP | 5.1 |
 | F7 | หลังผู้จัดงานได้รับอนุมัติ | เรียก `fetchAuthSession({ forceRefresh: true })` (หรือให้ล็อกอินใหม่) ถึงจะได้ group `Organizer` ใน token | 5.3 |
-| F8 | หน้าโปรไฟล์ | `GET /me` · `PUT /me` แก้ได้เฉพาะฟิลด์ของ role ตัวเอง (ผู้ขาย `displayName, phone, shopName, category` · ผู้จัดงาน `displayName, phone, orgName`) ผู้จัดงานที่ PENDING/REJECTED เรียกได้ ใช้แสดงสถานะรออนุมัติ | 4.1 |
-| F9 | หน้า Admin | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST .../reject` `{reason}` · `POST /admin/users/{userId}/suspend` `{reason}` · `POST /admin/users/{userId}/unsuspend` (ปุ่มยกเลิกระงับใช้ route นี้) · `GET /admin/events` | 9 |
+| F8 | หน้าโปรไฟล์ | `GET /me` · `PUT /me` แก้ได้เฉพาะฟิลด์ของ role ตัวเอง (ผู้ขาย `displayName, phone, shopName, category, line, bio, power` · ผู้จัดงาน `displayName, phone, orgName, payment`) ผู้จัดงานที่ PENDING/REJECTED เรียกได้ ใช้แสดงสถานะรออนุมัติ | 4.1 |
+| F9 | หน้า Admin | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST .../reject` `{reason}` · `POST /admin/users/{userId}/suspend` `{reason}` · `POST /admin/users/{userId}/unsuspend` (ปุ่มยกเลิกระงับใช้ route นี้) · `GET /admin/events` · `GET /admin/users?role=` (F33) | 9 |
 
 ### 15.3 งานและล็อก
 | # | เรื่อง | ต้องแก้อะไร | อ้างอิง |
@@ -631,5 +635,8 @@ Frontend ใน `Frontend/src/types.ts` มีความสามารถม�
 | F28 | หน้ารายชื่อร้าน (VendorsPage) | `GET /organizer/vendors` แทน `vendorStats()` ในเครื่อง ได้ `shop` (โปรไฟล์ผู้ขาย ใช้ `userId`, `shopName`, `displayName` แทน `Shop.id/name/owner`), `approved`, `total`, `pastCount`, `showRate`, `flagged` | 7.8, D5e |
 | F29 | โปรไฟล์ร้าน | `PUT /me` ผู้ขายแก้ `line`, `bio`, `power` (ข้อความ) ได้ · หน้า ShopProfilePage อ่านจาก `GET /me` แทน `Shop` | 4.1, D5f |
 | F30 | แจ้งเตือนยกเลิกระงับ | เพิ่ม type `account_unsuspended` | 8 |
+| F31 | ยอดเงิน = ราคาโซนอย่างเดียว | ตัดค่าไฟ (`FEES.power` 50 บาท/วัน) และค่าธรรมเนียมระบบ (`FEES.service` 20 บาท) ออกจาก `utils/pricing.ts`, `BookingSummary` · ใช้ `amount` จาก backend · `power` ยังส่งเป็นข้อมูล (I2) | INTEGRATION-PLAN I2 |
+| F32 | บัญชีรับเงินตั้งต้นของผู้จัดงาน | `OrganizerProfilePage` แก้ `payment {bank, accountName, accountNo}` ผ่าน `PUT /me` (ส่งครบ 3 ฟิลด์ ขาดตัวไหน → `400 VALIDATION_ERROR` · ผู้ขายส่งมา → `400 FIELD_NOT_ALLOWED`) · `GET /me` ของผู้จัดงานมี `payment` เมื่อเคยบันทึก · ฟอร์มงานใหม่เติมค่าจาก `me.payment` (backend พร้อมแล้ว B2) | INTEGRATION-PLAN I3 |
+| F33 | หน้า Admin ผู้ใช้/สรุป | `UserPage` → `GET /admin/users?role=SELLER\|ORGANIZER\|ADMIN` (ไม่ส่ง role = ทุกคน) ได้ `{ items }` โปรไฟล์แบบ `/me` · ตัวเลขใน `OrganizerApprovalsPage` และรายได้ใน `AllEventsPage` จาก `GET /admin/events` ที่ทุกงานมี `status`, `bookingCount` (การจองที่ยังถือล็อก) และ `revenue` (ยอดที่อนุมัติแล้ว) — รวมงานฉบับร่างด้วย (backend พร้อมแล้ว B3) | INTEGRATION-PLAN I5 |
 | F23 | ประเภทแจ้งเตือนใหม่ | เพิ่ม `booking_slip_uploaded` และ `booking_expired` ใน `NotificationType` + ไอคอนใน `data/options.ts` · ข้อความมาจาก backend แล้ว ไม่ต้องสร้างเองใน `data/notifications.ts` | 8 |
 | F18 | แจ้งเตือน | poll `GET /notifications` ทุก 30–60 วินาที → `{ items, unreadCount }` (ใช้ `id` ของ item แทน `AppNotification.id`, ไม่มี `accountId`) · อ่านแล้ว `POST /notifications/read` `{ ids }` หรือ `{ all: true }` · ไม่ต้องสร้างแจ้งเตือนเองใน `AppProvider` อีก backend สร้างให้หมด | 8 |

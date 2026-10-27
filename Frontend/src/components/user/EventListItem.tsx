@@ -1,15 +1,18 @@
 import { Link } from 'react-router'
-import type { MarketEvent } from '../../types'
+import { eventDayCount, freeLotCount, startingPrice } from '../../services/events'
+import type { LotStates, PublicEvent } from '../../types'
 import { baht, rangeLabel, shortDate } from '../../utils/format'
-import { eventLots } from '../../utils/layout'
-import { freeCountAll, lotStateAll, startingPrice } from '../../utils/pricing'
 
-/** แถวรายการงาน พร้อมแถบจุดแสดงล็อกว่างในวันแรก */
-export default function EventListItem({ event }: { event: MarketEvent }) {
-  const first = event.days[0]
-  const last = event.days[event.days.length - 1]
-  const { day, month } = shortDate(first.date)
-  const lots = eventLots(event)
+interface EventListItemProps {
+  event: PublicEvent
+  /** สถานะล็อกของงานนี้ (undefined = กำลังโหลด) */
+  lotStates?: LotStates
+}
+
+/** แถวรายการงาน พร้อมแถบจุดแสดงล็อกว่างทั้งงาน */
+export default function EventListItem({ event, lotStates }: EventListItemProps) {
+  const { day, month } = shortDate(event.startDate)
+  const lots = Object.entries(lotStates ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
   return (
     <article className="py-5 grid grid-cols-[64px_1fr] sm:grid-cols-[76px_1fr_auto] gap-x-5 gap-y-3 items-center">
@@ -25,26 +28,26 @@ export default function EventListItem({ event }: { event: MarketEvent }) {
           </Link>
         </h3>
         <p className="text-sm text-muted mt-0.5">
-          {event.venue}, {rangeLabel(first.date, last.date)}
+          {event.venue}, {rangeLabel(event.startDate, event.endDate)}
         </p>
         <div className="mt-3 flex items-center gap-3 flex-wrap">
           <div className="flex flex-wrap gap-[2px] w-[150px]" aria-hidden="true">
-            {lots.map((l) => (
-              <i
-                key={l.code}
-                className={`w-[5px] h-[5px] rounded-[1px] ${lotStateAll(event, l.code) === 'free' ? 'bg-cobalt' : 'bg-line'}`}
-              />
+            {lots.map(([code, state]) => (
+              <i key={code} className={`w-[5px] h-[5px] rounded-[1px] ${state === 'free' ? 'bg-cobalt' : 'bg-line'}`} />
             ))}
           </div>
-          <span className="text-sm">
-            <b className="font-display">{freeCountAll(event)}</b>{' '}
-            <span className="text-muted">จาก {lots.length} ล็อกว่าง</span>
-          </span>
+          {lotStates ? (
+            <span className="text-sm">
+              <b className="font-display">{freeLotCount(lotStates)}</b> <span className="text-muted">จาก {lots.length} ล็อกว่าง</span>
+            </span>
+          ) : (
+            <span className="text-sm text-muted">กำลังโหลดล็อก…</span>
+          )}
         </div>
       </div>
       <div className="flex sm:flex-col items-center sm:items-end gap-3 justify-between col-span-2 sm:col-span-1">
         <p className="text-sm text-muted">
-          เริ่มต้น <b className="font-display text-xl text-ink">{baht(startingPrice(event))}</b> ทั้งงาน {event.days.length} วัน
+          เริ่มต้น <b className="font-display text-xl text-ink">{baht(startingPrice(event))}</b> ทั้งงาน {eventDayCount(event)} วัน
         </p>
         <Link
           to={`/events/${event.id}`}

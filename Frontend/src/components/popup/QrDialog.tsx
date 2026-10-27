@@ -1,25 +1,25 @@
-import type { Booking, MarketEvent } from '../../types'
 import Modal from './Modal'
 import QrCode from '../common/QrCode'
 
 interface QrDialogProps {
-  booking: Booking | null
-  event: MarketEvent | undefined
+  booking: { id: string; lot: string } | null
+  eventTitle?: string
   onClose: () => void
 }
 
-export default function QrDialog({ booking, event, onClose }: QrDialogProps) {
+/** QR เช็กอินหน้างาน ผู้จัดงานสแกนแล้วได้ bookingId ไปเรียก POST /bookings/{id}/check-in (F27) */
+export default function QrDialog({ booking, eventTitle, onClose }: QrDialogProps) {
   return (
-    <Modal open={!!booking && !!event} onClose={onClose} title="QR เช็กอินหน้างาน" className="w-[320px] text-center">
-      {booking && event && (
+    <Modal open={!!booking} onClose={onClose} title="QR เช็กอินหน้างาน" className="w-[320px] text-center">
+      {booking && (
         <>
-          <p className="text-sm text-muted mt-1">{event.title}</p>
+          {eventTitle && <p className="text-sm text-muted mt-1">{eventTitle}</p>}
           <div className="mt-5 mx-auto bg-white p-3 rounded-lg w-fit border border-line">
-            <QrCode value={`${booking.id}:${booking.lot}`} />
+            <QrCode value={booking.id} />
           </div>
           <p className="mt-4 font-display text-4xl font-bold">{booking.lot}</p>
           <p className="text-sm text-muted">ยื่นให้เจ้าหน้าที่สแกนที่จุดลงทะเบียน</p>
-          <p className="text-xs text-muted mt-1">{booking.id}</p>
+          <p className="text-xs text-muted mt-1 break-all">{booking.id}</p>
           <button
             type="button"
             onClick={onClose}

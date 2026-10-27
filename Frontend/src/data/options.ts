@@ -1,4 +1,4 @@
-import type { AccountStatus, BookingStatus, EventStatus, EventType, LotState, NotificationType, Role } from '../types'
+import type { AccountStatus, BookingUiStatus, EventStatus, EventType, LotState, NotificationType, Role } from '../types'
 
 export const EVENT_TYPES: EventType[] = ['ตลาดนัด', 'งานแฟร์', 'งานมหาวิทยาลัย']
 
@@ -18,7 +18,9 @@ export const ORGANIZER_REJECT_REASONS = ['ข้อมูลองค์กร�
 
 export const SUSPEND_REASONS = ['ไม่มาตามนัดหลายครั้งโดยไม่แจ้งผู้จัดงาน', 'แนบสลิปปลอม', 'ทำผิดกติกาของระบบ']
 
-export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
+export const BOOKING_STATUS_LABEL: Record<BookingUiStatus, string> = {
+  awaiting_slip: 'รอแนบสลิป',
+  expired: 'หมดเวลา',
   pending: 'รออนุมัติ',
   approved: 'อนุมัติแล้ว',
   rejected: 'ไม่อนุมัติ',
@@ -76,6 +78,8 @@ export const ROLE_HOME: Record<Role, string> = {
 
 export const NOTIFICATION_ICON: Record<NotificationType, string> = {
   booking_new: '📥',
+  booking_slip_uploaded: '🧾',
+  booking_expired: '⌛',
   booking_approved: '✅',
   booking_moved: '🔀',
   booking_rejected: '⛔',
@@ -84,4 +88,5 @@ export const NOTIFICATION_ICON: Record<NotificationType, string> = {
   organizer_approved: '✅',
   organizer_rejected: '⛔',
   account_suspended: '🚫',
+  account_unsuspended: '🔓',
 }

@@ -1,16 +1,18 @@
-import type { AccountStatus, BookingStatus, EventStatus } from '../../types'
+import type { AccountStatus, BookingUiStatus, EventStatus } from '../../types'
 import { ACCOUNT_STATUS_LABEL, BOOKING_STATUS_LABEL, EVENT_STATUS_LABEL } from '../../data/options'
 
 const base = 'inline-block whitespace-nowrap text-xs font-semibold rounded-md px-2 py-1'
 
-const bookingTone: Record<BookingStatus, string> = {
+const bookingTone: Record<BookingUiStatus, string> = {
+  awaiting_slip: 'border border-onsun/40 bg-sun/40 text-onsun',
+  expired: 'bg-mist text-muted',
   pending: 'bg-sun text-onsun',
   approved: 'bg-cobalt text-oncobalt',
   rejected: 'border border-danger text-danger',
   cancelled: 'bg-mist text-muted',
 }
 
-export function BookingStatusBadge({ status }: { status: BookingStatus }) {
+export function BookingStatusBadge({ status }: { status: BookingUiStatus }) {
   return <span className={`${base} ${bookingTone[status]}`}>{BOOKING_STATUS_LABEL[status]}</span>
 }
 

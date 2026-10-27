@@ -4,17 +4,16 @@ import Chip from '../../components/common/Chip'
 import EventListItem from '../../components/user/EventListItem'
 import { EVENT_TYPES } from '../../data/options'
 import { LIMITS } from '../../data/settings'
-import { useAppStore } from '../../hooks/useAppStore'
-import { openEvents } from '../../services/selectors'
+import { useLotsOfEvents, useOpenEvents } from '../../queries/events'
+import { freeLotCount, startingPrice } from '../../services/events'
 import { baht } from '../../utils/format'
-import { freeCountAll, startingPrice } from '../../utils/pricing'
 
 const PRICE_STEP = 10
 
 export default function EventsPage() {
   const [params] = useSearchParams()
-  const { events } = useAppStore()
-  const open = openEvents(events)
+  const { open, isPending } = useOpenEvents()
+  const lotsByEvent = useLotsOfEvents(open.map((e) => e.id))
   // ช่วงราคาของตัวกรองคำนวณจากราคาเริ่มต้นของงานที่เปิดอยู่
   const prices = open.map(startingPrice)
   const minPrice = prices.length ? Math.floor(Math.min(...prices) / PRICE_STEP) * PRICE_STEP : 0
@@ -32,7 +31,7 @@ export default function EventsPage() {
       (type === 'ทั้งหมด' || e.type === type) &&
       (!keyword || `${e.title} ${e.venue} ${e.organizer}`.toLowerCase().includes(keyword)) &&
       startingPrice(e) <= cap &&
-      (!onlyFree || freeCountAll(e) > LIMITS.manyFreeLots),
+      (!onlyFree || freeLotCount(lotsByEvent[e.id]) > LIMITS.manyFreeLots),
   )
 
   const reset = () => {
@@ -111,13 +110,13 @@ export default function EventsPage() {
           </label>
         </aside>
         <div>
-          <p className="text-sm text-muted mb-3">พบ {list.length} งาน</p>
+          <p className="text-sm text-muted mb-3">{isPending ? 'กำลังโหลดงาน…' : `พบ ${list.length} งาน`}</p>
           <div className="divide-y divide-line border-y border-line">
             {list.map((e) => (
-              <EventListItem key={e.id} event={e} />
+              <EventListItem key={e.id} event={e} lotStates={lotsByEvent[e.id]} />
             ))}
           </div>
-          {!list.length && (
+          {!isPending && !list.length && (
             <div className="py-14 text-center">
               <p className="text-muted">ไม่พบงานที่ตรงกับตัวกรอง</p>
               <button type="button" onClick={reset} className="mt-3 text-cobalt font-semibold hover:underline underline-offset-4">

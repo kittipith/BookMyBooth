@@ -1,10 +1,8 @@
-import type { MarketEvent } from '../../types'
+import { eventDayCount } from '../../services/events'
+import type { PublicEvent } from '../../types'
 import { baht, rangeLabel } from '../../utils/format'
-import { eventPrice } from '../../utils/pricing'
 
-export default function LotPanelEmpty({ event }: { event: MarketEvent }) {
-  const first = event.days[0]
-  const last = event.days[event.days.length - 1]
+export default function LotPanelEmpty({ event }: { event: PublicEvent }) {
   return (
     <div className="bg-surface border border-line rounded-2xl p-6">
       <h2 className="font-display text-xl font-semibold">ยังไม่ได้เลือกล็อก</h2>
@@ -15,12 +13,12 @@ export default function LotPanelEmpty({ event }: { event: MarketEvent }) {
             <span>
               <b>โซน {z.id}</b> <span className="text-muted">{z.name}</span>
             </span>
-            <span className="font-display font-semibold">{baht(eventPrice(event, z.id))}</span>
+            <span className="font-display font-semibold">{baht(z.price)}</span>
           </li>
         ))}
       </ul>
       <p className="text-xs text-muted mt-3">
-        ราคาต่อล็อกตลอดงาน {rangeLabel(first.date, last.date)} ({event.days.length} วัน)
+        ราคาต่อล็อกตลอดงาน {rangeLabel(event.startDate, event.endDate)} ({eventDayCount(event)} วัน)
       </p>
     </div>
   )

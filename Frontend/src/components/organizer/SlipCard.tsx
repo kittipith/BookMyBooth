@@ -1,26 +1,36 @@
-import type { Booking } from '../../types'
-import { baht, dateTimeLabel } from '../../utils/format'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { getSlipUrl } from '../../api/bookings'
+import { queryKeys } from '../../queries/queryKeys'
 
-interface SlipCardProps {
-  booking: Booking
-  payer: string
-  organizer: string
-}
+/** ลิงก์สลิปมีอายุ 5 นาที ขอใหม่ก่อนหมด */
+const SLIP_URL_STALE_MS = 4 * 60_000
 
-/** สลิปการโอนที่ผู้ขายแนบมา (จำลองหน้าตาสลิปธนาคาร) */
-export default function SlipCard({ booking, payer, organizer }: SlipCardProps) {
+/**
+ * สลิปการโอนที่ผู้ขายแนบมา (GET /bookings/{id}/slip) สลิปเดียวต่อชุด
+ * รูปแสดงในหน้าเลย ส่วน PDF (รูปโหลดไม่ขึ้น) ให้เปิดในแท็บใหม่
+ */
+export default function SlipCard({ bookingId }: { bookingId: string }) {
+  const [notImage, setNotImage] = useState(false)
+  const { data, isPending, isError } = useQuery({
+    queryKey: queryKeys.slip(bookingId),
+    queryFn: () => getSlipUrl(bookingId),
+    staleTime: SLIP_URL_STALE_MS,
+    meta: { silentError: true },
+  })
+
+  if (isPending) return <p className="text-sm text-muted">กำลังโหลดสลิป…</p>
+  if (isError || !data) return <p className="text-sm text-danger">โหลดสลิปไม่ได้</p>
   return (
-    <div className="mx-auto w-56 bg-white text-[#0E1A3D] rounded-xl border border-line p-4 text-sm">
-      <p className="font-semibold">โอนเงินสำเร็จ</p>
-      <p className="text-xs text-[#5c6680]">{dateTimeLabel(booking.submittedAt)}</p>
-      <div className="my-3 border-t border-dashed border-[#d9dde8]" />
-      <p className="text-xs text-[#5c6680]">จาก</p>
-      <p className="font-semibold">{payer}</p>
-      <p className="text-xs text-[#5c6680] mt-2">ไปยัง</p>
-      <p className="font-semibold">{organizer}</p>
-      <p className="text-xs text-[#5c6680] mt-2">จำนวนเงิน</p>
-      <p className="font-display text-2xl font-bold">{baht(booking.slipAmount)}</p>
-      <p className="text-[10px] text-[#5c6680] mt-2 truncate">{booking.slipName}</p>
+    <div>
+      {notImage ? (
+        <p className="bg-mist rounded-xl p-4 text-sm">สลิปเป็นไฟล์ PDF</p>
+      ) : (
+        <img src={data.url} alt="สลิปการโอน" onError={() => setNotImage(true)} className="mx-auto max-h-[420px] rounded-xl border border-line" />
+      )}
+      <a href={data.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm text-cobalt font-semibold hover:underline underline-offset-4">
+        เปิดสลิปในแท็บใหม่
+      </a>
     </div>
   )
 }

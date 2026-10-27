@@ -1,16 +1,14 @@
 import { ZONE_LETTERS } from '../../../data/zones'
 import type { Zone } from '../../../types'
 import { baht } from '../../../utils/format'
-import { withSurcharge } from '../../../utils/pricing'
 import { zoneClass } from '../../../utils/layout'
-import type { EditorDay } from './DayPricingTable'
 import SizeInput from './SizeInput'
 import NumberInput from '../../common/NumberInput'
 
 interface ZoneSettingsTableProps {
   zones: Zone[]
-  /** วันของงานพร้อมส่วนเพิ่มราคา ใช้คำนวณราคาสุทธิ */
-  days: EditorDay[]
+  /** จำนวนวันที่จัดงาน (แสดงอย่างเดียว ราคาเป็นราคาต่อล็อกทั้งงาน) */
+  dayCount: number
   counts: Record<string, number>
   /** จำนวนล็อกที่ปิดไม่ให้จองในแต่ละโซน */
   offCounts: Record<string, number>
@@ -19,12 +17,10 @@ interface ZoneSettingsTableProps {
   onRemove: (id: string) => void
 }
 
-/** ราคาสุทธิของล็อกหนึ่งล็อกตลอดงาน (รวมส่วนเพิ่มของแต่ละวัน) */
-const lotTotal = (price: number, days: EditorDay[]) => days.reduce((sum, d) => sum + withSurcharge(price, d.surcharge), 0)
-
-export default function ZoneSettingsTable({ zones, days, counts, offCounts, onChange, onAdd, onRemove }: ZoneSettingsTableProps) {
+/** ผู้ขายจองทั้งงาน ราคาโซนคือราคาต่อล็อกตลอดงาน ไม่มีราคารายวัน (I2, F11) */
+export default function ZoneSettingsTable({ zones, dayCount, counts, offCounts, onChange, onAdd, onRemove }: ZoneSettingsTableProps) {
   const bookable = (id: string) => (counts[id] ?? 0) - (offCounts[id] ?? 0)
-  const grandTotal = zones.reduce((sum, z) => sum + lotTotal(z.price, days) * bookable(z.id), 0)
+  const grandTotal = zones.reduce((sum, z) => sum + z.price * bookable(z.id), 0)
   return (
     <>
       <h3 className="mt-8 font-semibold">ตั้งค่าโซน</h3>
@@ -35,9 +31,9 @@ export default function ZoneSettingsTable({ zones, days, counts, offCounts, onCh
               <th className="font-medium py-2 pr-3">โซน</th>
               <th className="font-medium py-2 pr-3">ชื่อโซน</th>
               <th className="font-medium py-2 pr-3">ขนาดล็อก กว้าง × ลึก</th>
-              <th className="font-medium py-2 pr-3">ราคาฐานต่อวัน</th>
+              <th className="font-medium py-2 pr-3">ราคาต่อล็อก (ทั้งงาน {dayCount} วัน)</th>
               <th className="font-medium py-2 pr-3 text-right">จำนวนล็อก</th>
-              <th className="font-medium py-2 text-right">ราคาสุทธิ ({days.length} วัน)</th>
+              <th className="font-medium py-2 text-right">รวมทั้งโซน</th>
               <th className="py-2 w-10">
                 <span className="sr-only">ลบ</span>
               </th>
@@ -74,10 +70,10 @@ export default function ZoneSettingsTable({ zones, days, counts, offCounts, onCh
                 </td>
                 <td className="py-2.5 text-right whitespace-nowrap">
                   <span className="font-display text-lg font-semibold" aria-label={`ราคาสุทธิโซน ${z.id}`}>
-                    {baht(lotTotal(z.price, days) * bookable(z.id))}
+                    {baht(z.price * bookable(z.id))}
                   </span>
                   <span className="block text-xs text-muted">
-                    ล็อกละ {baht(lotTotal(z.price, days))} × {bookable(z.id)} ล็อก
+                    ล็อกละ {baht(z.price)} × {bookable(z.id)} ล็อก
                   </span>
                 </td>
                 <td className="py-2.5 text-right">
@@ -98,7 +94,7 @@ export default function ZoneSettingsTable({ zones, days, counts, offCounts, onCh
           <tfoot className="border-t-2 border-line">
             <tr>
               <td colSpan={5} className="py-3 pr-3 text-right text-muted">
-                รวมทุกโซน ถ้าขายหมดทุกวัน
+                รวมทุกโซน ถ้าขายหมด
               </td>
               <td className="py-3 text-right font-display text-xl font-bold">{baht(grandTotal)}</td>
               <td />

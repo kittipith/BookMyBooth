@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import type { UserDto } from '../api/dto'
 import type {
   Account,
   AppNotification,
@@ -47,6 +48,11 @@ export interface AppActions {
   /** ผู้ดูแลระบบระงับหรือยกเลิกการระงับบัญชี */
   setSuspended: (accountId: string, suspended: boolean, reason?: string) => void
   markNotificationsRead: (ids: string[]) => void
+  /**
+   * ชั่วคราว (เฟส 2–7): คัดลอกโปรไฟล์จาก GET /me ลงร้าน/ผู้จัดงานในข้อมูลจำลอง id = userId
+   * ให้หน้าที่ยังใช้ข้อมูลจำลอง (useMyShop, useOrganizerData) ทำงานต่อได้ ลบในเฟส 8
+   */
+  syncProfile: (me: UserDto) => void
 }
 
 export type AppStore = AppStoreState & AppActions

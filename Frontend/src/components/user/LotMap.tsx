@@ -1,21 +1,22 @@
 import { LOT_STATE_LABEL as STATE_LABEL } from '../../data/options'
-import type { MarketEvent } from '../../types'
+import { lotStateOf, zonePrice } from '../../services/events'
+import type { LotStates, PublicEvent } from '../../types'
 import { baht } from '../../utils/format'
 import { cellSizes, eventLots, lotSize } from '../../utils/layout'
-import { eventPrice, lotStateAll } from '../../utils/pricing'
 import LayoutGrid from '../common/LayoutGrid'
 
 interface LotMapProps {
-  event: MarketEvent
+  event: Pick<PublicEvent, 'layout' | 'cols' | 'zones' | 'lotSizes'>
+  /** สถานะล็อกทั้งงานจาก GET /events/{id}/lots */
+  lotStates: LotStates
   /** ล็อกที่เลือกไว้ (เลือกได้หลายล็อก) */
   selected?: string[]
   onSelect?: (code: string) => void
   mini?: boolean
 }
 
-/** ผังล็อกของงานในวันที่เลือก วางตามตำแหน่งที่ผู้จัดงานวาดไว้จริง */
-/** ผังล็อกของงาน ผู้ขายจองทั้งงาน ล็อกว่างเมื่อว่างครบทุกวัน */
-export default function LotMap({ event, selected, onSelect, mini = false }: LotMapProps) {
+/** ผังล็อกของงานตามตำแหน่งที่ผู้จัดงานวาดไว้จริง ผู้ขายจองทั้งงาน */
+export default function LotMap({ event, lotStates, selected, onSelect, mini = false }: LotMapProps) {
   const lots = eventLots(event)
   const zones = event.zones.filter((z) => lots.some((l) => l.zone === z.id))
 
@@ -27,7 +28,7 @@ export default function LotMap({ event, selected, onSelect, mini = false }: LotM
             <li key={z.id}>
               <b>โซน {z.id}</b> <span className="text-muted">{z.name} {z.size}</span>{' '}
               {lots.some((l) => l.zone === z.id && lotSize(event, l.code) !== z.size) && <span className="text-muted">(บางล็อกขนาดพิเศษ)</span>}{' '}
-              <span className="font-display font-semibold">{baht(eventPrice(event, z.id))}</span>
+              <span className="font-display font-semibold">{baht(zonePrice(event, z.id))}</span>
               <span className="text-muted">/ทั้งงาน</span>
             </li>
           ))}
@@ -39,7 +40,7 @@ export default function LotMap({ event, selected, onSelect, mini = false }: LotM
         sizes={cellSizes(event.layout, event.zones, event.lotSizes)}
         mini={mini}
         renderLot={(code) => {
-          const state = lotStateAll(event, code)
+          const state = lotStateOf(lotStates, code)
           const isSel = state === 'free' && !!selected?.includes(code)
           return (
             <button

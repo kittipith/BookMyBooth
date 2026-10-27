@@ -34,6 +34,12 @@ class SignupProfile(CamelModel):
     category: str | None = Field(None, max_length=50)
 
 
+class PaymentInput(CamelModel):
+    bank: str = Field(min_length=1, max_length=100)
+    account_name: str = Field(min_length=1, max_length=100)
+    account_no: str = Field(min_length=1, max_length=30)
+
+
 class UpdateMeInput(CamelModel):
     display_name: str | None = Field(None, min_length=1, max_length=100)
     phone: str | None = Field(None, pattern=_PHONE)
@@ -44,6 +50,8 @@ class UpdateMeInput(CamelModel):
     line: str | None = Field(None, max_length=50)
     bio: str | None = Field(None, max_length=1000)
     power: str | None = Field(None, max_length=100)
+    # บัญชีรับเงินตั้งต้นของผู้จัดงาน (I3)
+    payment: PaymentInput | None = None
 
 
 class MarkReadInput(CamelModel):
@@ -63,12 +71,6 @@ class MarkReadInput(CamelModel):
 
 class ReasonInput(CamelModel):
     reason: str = Field(min_length=1, max_length=500)
-
-
-class PaymentInput(CamelModel):
-    bank: str = Field(min_length=1, max_length=100)
-    account_name: str = Field(min_length=1, max_length=100)
-    account_no: str = Field(min_length=1, max_length=30)
 
 
 ShortText = Annotated[str, Field(min_length=1, max_length=50)]

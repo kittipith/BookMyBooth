@@ -1,9 +1,9 @@
 import { ORGANIZER_NAV } from '../../data/content'
-import { useOrganizerData } from '../../hooks/useAppStore'
+import { useOrganizerBookings } from '../../queries/organizer'
 import DashboardLayout from './DashboardLayout'
 
 export default function OrganizerLayout() {
-  const { myBookings } = useOrganizerData()
-  const pending = myBookings.filter((b) => b.status === 'pending').length
+  const { bookings } = useOrganizerBookings()
+  const pending = bookings.filter((b) => b.status === 'pending').length
   return <DashboardLayout area="ผู้จัดงาน" home="/organizer" nav={ORGANIZER_NAV} badgeCount={pending} />
 }

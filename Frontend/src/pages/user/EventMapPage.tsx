@@ -4,51 +4,65 @@ import LotMap from '../../components/user/LotMap'
 import LotPanelEmpty from '../../components/user/LotPanelEmpty'
 import LotPanelSelected from '../../components/user/LotPanelSelected'
 import MapLegend from '../../components/user/MapLegend'
-import { useAppStore, useEvent } from '../../hooks/useAppStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { lotLimitReached, sellerLots } from '../../services/selectors'
-import type { MarketEvent } from '../../types'
+import { useMyBookings } from '../../queries/bookings'
+import { useEventDetail, useEventLots } from '../../queries/events'
+import { writeDraft } from '../../services/bookingDraft'
+import { activeLots } from '../../services/bookings'
+import { eventDayCount, lotStateOf } from '../../services/events'
+import type { LotStates, PublicEvent } from '../../types'
 import { rangeLabel } from '../../utils/format'
-import { allDays, lotStateAll } from '../../utils/pricing'
 
 export default function EventMapPage() {
   const { eventId } = useParams()
-  const event = useEvent(eventId)
+  const event = useEventDetail(eventId)
+  // โหลดล็อกเมื่อรู้แล้วว่างานเปิดรับจอง (งานที่ไม่มีจะได้ 404 ซ้ำ)
+  const lots = useEventLots(event.data?.status === 'open' ? eventId : undefined)
 
-  if (!event || event.status !== 'open') {
+  if (event.isPending || (event.data?.status === 'open' && lots.isPending)) {
+    return (
+      <section className="max-w-3xl mx-auto px-5 py-20 text-center text-muted" role="status">
+        กำลังโหลดผังงาน…
+      </section>
+    )
+  }
+
+  if (!event.data || event.data.status !== 'open' || !lots.data) {
     return (
       <section className="max-w-3xl mx-auto px-5 py-20 text-center">
-        <h1 className="font-display text-3xl font-bold">งานนี้ไม่เปิดรับจองแล้ว</h1>
-        <p className="mt-2 text-muted">งานอาจปิดรับจองหรือถูกลบไปแล้ว ลองดูงานอื่นที่ยังเปิดอยู่</p>
+        <h1 className="font-display text-3xl font-bold">{event.isError && event.error.status !== 404 ? 'โหลดงานนี้ไม่สำเร็จ' : 'งานนี้ไม่เปิดรับจองแล้ว'}</h1>
+        <p className="mt-2 text-muted">
+          {event.isError && event.error.status !== 404 ? event.error.message : 'งานอาจปิดรับจองหรือถูกลบไปแล้ว ลองดูงานอื่นที่ยังเปิดอยู่'}
+        </p>
         <Link to="/events" className="mt-6 inline-block bg-cobalt text-oncobalt rounded-xl px-6 py-3 font-semibold">
           ดูงานที่เปิดรับจอง
         </Link>
       </section>
     )
   }
-  return <EventMap key={event.id} event={event} />
+  return <EventMap key={event.data.id} event={event.data} lotStates={lots.data} />
 }
 
-function EventMap({ event }: { event: MarketEvent }) {
-  const navigate = useNavigate()
+function EventMap({ event, lotStates }: { event: PublicEvent; lotStates: LotStates }) {
   const [params] = useSearchParams()
-  const { bookings, setDraft } = useAppStore()
+  const navigate = useNavigate()
   const toast = useToast()
-  const { account, requireAuth } = useAuth()
-  // ล็อกที่ร้านของผู้ขายที่เข้าสู่ระบบอยู่จองไว้แล้วในงานนี้
-  const myLots = account?.role === 'seller' && account.shopId ? sellerLots(bookings, event.id, account.shopId) : []
+  const { requireAuth } = useAuth()
+  // ล็อกที่ร้านของผู้ขายที่ล็อกอินอยู่ถือไว้แล้วในงานนี้ (รอสลิป / รอตรวจ / อนุมัติ)
+  const { data: myBookings = [] } = useMyBookings()
+  const myLots = activeLots(myBookings, event.id)
 
-  // ผู้ขายจองทั้งงาน ล็อกว่างเมื่อว่างครบทุกวัน
-  const lotIsFree = (code: string) => lotStateAll(event, code) === 'free'
+  const lotIsFree = (code: string) => lotStateOf(lotStates, code) === 'free'
   // ?lots=A01,A02 (หรือ ?lot=A01 แบบเดิม) กลับมาที่ผังพร้อมล็อกที่เลือกไว้
   const initialLots = (params.get('lots') ?? params.get('lot') ?? '').split(',').filter((code) => code && lotIsFree(code))
 
-  const [lots, setLots] = useState<string[]>(initialLots)
+  const [picked, setLots] = useState<string[]>(initialLots)
+  // ล็อกที่เลือกไว้แล้วมีคนอื่นจองไประหว่างนั้น (สถานะล็อกโหลดใหม่ทุก 15 วินาทีเมื่อกลับมาที่หน้า)
+  const lots = picked.filter(lotIsFree)
 
-  const first = event.days[0]
-  const last = event.days[event.days.length - 1]
-  // เลือกเพิ่มได้อีกกี่ล็อก (null = ไม่จำกัด) นับล็อกที่ร้านนี้จองไว้แล้วด้วย
+  const days = eventDayCount(event)
+  // เลือกได้อีกกี่ล็อก (null = ไม่จำกัด) นับล็อกที่ร้านนี้จองไว้แล้วด้วย
   const remaining = event.maxLotsPerSeller === null ? null : Math.max(0, event.maxLotsPerSeller - myLots.length)
   const limitMessage = (held: number) =>
     `งานนี้จองได้ไม่เกิน ${event.maxLotsPerSeller} ล็อกต่อร้าน${held ? ` คุณจองไว้แล้ว ${held} ล็อก` : ''}`
@@ -68,20 +82,11 @@ function EventMap({ event }: { event: MarketEvent }) {
 
   const book = () => {
     if (!lots.length) return
-    // จองทั้งงาน ทุกวันที่งานจัด
-    const draft = { eventId: event.id, lots, days: allDays(event) }
-    // ต้องเข้าสู่ระบบด้วยบัญชีผู้ขายก่อน แล้วค่อยไปขั้นตอนจองต่อทันที
+    // ต้องเข้าสู่ระบบด้วยบัญชีผู้ขายก่อน แล้วไปขั้นตอนจองต่อทันที (backend ตรวจโควตาซ้ำ QUOTA_EXCEEDED)
     requireAuth(
       'seller',
-      (account) => {
-        // จำกัดจำนวนล็อกต่อร้านตามที่ผู้จัดงานตั้งไว้ (นับล็อกที่จองไว้แล้ว + ล็อกที่เลือกครั้งนี้)
-        const held = sellerLots(bookings, event.id, account.shopId ?? '').length
-        if (lotLimitReached(event, held + lots.length - 1)) {
-          const left = Math.max(0, (event.maxLotsPerSeller ?? 0) - held)
-          toast(`${limitMessage(held)} ${left ? `เลือกได้อีก ${left} ล็อก` : 'ครบแล้ว'}`, 'danger')
-          return
-        }
-        setDraft(draft)
+      () => {
+        writeDraft({ eventId: event.id, lots })
         navigate('/booking/shop-info')
       },
       `เข้าสู่ระบบบัญชีผู้ขายเพื่อจองล็อก ${lots.join(', ')}`,
@@ -104,7 +109,7 @@ function EventMap({ event }: { event: MarketEvent }) {
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-6 text-sm border-t lg:border-t-0 lg:border-l border-line pt-4 lg:pt-0 lg:pl-6">
           <div>
             <dt className="text-muted">วันที่</dt>
-            <dd className="font-semibold mt-0.5">{rangeLabel(first.date, last.date)}</dd>
+            <dd className="font-semibold mt-0.5">{rangeLabel(event.startDate, event.endDate)}</dd>
           </div>
           <div>
             <dt className="text-muted">เวลาขาย</dt>
@@ -130,13 +135,13 @@ function EventMap({ event }: { event: MarketEvent }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm">
-              จองทั้งงาน <b>{rangeLabel(first.date, last.date)}</b> <span className="text-muted">({event.days.length} วัน)</span>
+              จองทั้งงาน <b>{rangeLabel(event.startDate, event.endDate)}</b> <span className="text-muted">({days} วัน)</span>
             </p>
             <MapLegend withSelected />
           </div>
           <div className="mt-5 bg-surface border border-line rounded-2xl p-4 sm:p-6 relative overflow-x-auto">
             <div style={{ minWidth: Math.max(600, event.cols * 38) }}>
-              <LotMap event={event} selected={lots} onSelect={selectLot} />
+              <LotMap event={event} lotStates={lotStates} selected={lots} onSelect={selectLot} />
             </div>
           </div>
         </div>

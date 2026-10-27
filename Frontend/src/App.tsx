@@ -1,4 +1,6 @@
 import { BrowserRouter, Outlet, Route, Routes } from 'react-router'
+import ApiErrorToaster from './components/common/ApiErrorToaster'
+import NotificationWatcher from './components/common/NotificationWatcher'
 import RequireAuth from './components/common/RequireAuth'
 import ScrollToTop from './components/common/ScrollToTop'
 import ToastProvider from './components/common/ToastProvider'
@@ -32,6 +34,8 @@ function App() {
     <AppProvider>
       <AuthProvider>
         <ToastProvider>
+          <ApiErrorToaster />
+          <NotificationWatcher />
           <BrowserRouter>
             <ScrollToTop />
             <LoginPopup />
@@ -51,8 +55,8 @@ function App() {
                   }
                 >
                   <Route path="booking/shop-info" element={<BookingShopInfoPage />} />
-                  <Route path="booking/payment" element={<BookingPaymentPage />} />
-                  <Route path="booking/sent/:bookingId" element={<BookingSentPage />} />
+                  <Route path="booking/payment/:groupId" element={<BookingPaymentPage />} />
+                  <Route path="booking/sent/:groupId" element={<BookingSentPage />} />
                   <Route path="my-bookings" element={<MyBookingsPage />} />
                   <Route path="profile" element={<ShopProfilePage />} />
                 </Route>

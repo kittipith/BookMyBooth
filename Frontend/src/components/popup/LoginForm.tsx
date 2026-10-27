@@ -1,8 +1,7 @@
 import { useState, type FormEvent } from 'react'
-import { useAppStore } from '../../hooks/useAppStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { accountProfile, normalizeEmail } from '../../services/auth'
+import DevAccountPicker from './DevAccountPicker'
 import PasswordInput from './PasswordInput'
 
 const field = 'mt-2 w-full bg-surface border border-line rounded-lg px-3 py-2.5 outline-none focus:border-cobalt'
@@ -15,16 +14,19 @@ interface LoginFormProps {
 }
 
 export default function LoginForm({ onRegister, onForgot, onNeedVerify }: LoginFormProps) {
-  const { login, closeLogin } = useAuth()
-  const { accounts, shops, organizers } = useAppStore()
+  const { login, closeLogin, authMode } = useAuth()
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    const result = login(email, password)
+    if (busy) return
+    setBusy(true)
+    const result = await login(email, password)
+    setBusy(false)
     if (result.error) {
       setError(result.error)
       return
@@ -33,12 +35,20 @@ export default function LoginForm({ onRegister, onForgot, onNeedVerify }: LoginF
       onNeedVerify(result.verifyEmail)
       return
     }
-    const account = accounts.find((a) => a.email === normalizeEmail(email))
-    if (account) toast(`ยินดีต้อนรับ คุณ${accountProfile(account, shops, organizers).name}`)
+    if (result.name) toast(`ยินดีต้อนรับ คุณ${result.name}`)
   }
 
   return (
     <form onSubmit={onSubmit} noValidate className="mt-5">
+      {authMode === 'dev' && (
+        <DevAccountPicker
+          onPick={(account) => {
+            setEmail(account.email)
+            setPassword(account.password)
+            setError('')
+          }}
+        />
+      )}
       <label className="block">
         <span className="text-sm font-semibold">อีเมล</span>
         <input
@@ -78,7 +88,9 @@ export default function LoginForm({ onRegister, onForgot, onNeedVerify }: LoginF
         <button type="button" onClick={closeLogin} className="px-4 py-2.5 rounded-xl hover:bg-mist">
           ยกเลิก
         </button>
-        <button className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press">เข้าสู่ระบบ</button>
+        <button disabled={busy} className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press disabled:opacity-60">
+          {busy ? 'กำลังเข้าสู่ระบบ…' : 'เข้าสู่ระบบ'}
+        </button>
       </div>
       <p className="mt-5 pt-4 border-t border-line text-sm text-muted text-center">
         ยังไม่มีบัญชี?{' '}

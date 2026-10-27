@@ -9,23 +9,24 @@ import MapLegend from '../../components/user/MapLegend'
 import { HOW_IT_WORKS } from '../../data/content'
 import { EVENT_TYPES } from '../../data/options'
 import { LIMITS } from '../../data/settings'
-import { useAppStore } from '../../hooks/useAppStore'
 import { useAuth } from '../../hooks/useAuth'
-import { openEvents as selectOpenEvents } from '../../services/selectors'
+import { useEventDetail, useLotsOfEvents, useOpenEvents } from '../../queries/events'
+import { freeLotCount } from '../../services/events'
 import { rangeLabel } from '../../utils/format'
-import { freeCountAll } from '../../utils/pricing'
 
 export default function HomePage() {
   const navigate = useNavigate()
   const { account } = useAuth()
-  const { events } = useAppStore()
-  const openEvents = selectOpenEvents(events)
+  const { open: openEvents, isPending } = useOpenEvents()
+  const lotsByEvent = useLotsOfEvents(openEvents.map((e) => e.id))
   const [q, setQ] = useState('')
   const [type, setType] = useState('ทั้งหมด')
   const [listType, setListType] = useState('ทั้งหมด')
 
-  const featured = openEvents[0]
-  const freeTotal = openEvents.reduce((sum, e) => sum + freeCountAll(e), 0)
+  // ผังต้องใช้รายละเอียดงาน (GET /events ไม่มีผัง)
+  const featured = useEventDetail(openEvents[0]?.id).data
+  const featuredLots = featured ? lotsByEvent[featured.id] : undefined
+  const freeTotal = openEvents.reduce((sum, e) => sum + freeLotCount(lotsByEvent[e.id]), 0)
   const list = openEvents.filter((e) => listType === 'ทั้งหมด' || e.type === listType).slice(0, LIMITS.homeEvents)
 
   const onSearch = (e: FormEvent) => {
@@ -74,7 +75,7 @@ export default function HomePage() {
           </p>
         </div>
 
-        {featured && (
+        {featured && featuredLots && (
           <div className="bg-surface border border-line rounded-[20px] p-5 sm:p-6 relative">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -82,12 +83,13 @@ export default function HomePage() {
                 <h2 className="font-display text-xl font-semibold leading-tight">{featured.title}</h2>
               </div>
               <span className="shrink-0 bg-sun text-onsun text-sm font-semibold rounded-md px-2.5 py-1">
-                {rangeLabel(featured.days[0].date, featured.days[featured.days.length - 1].date)} ว่าง {freeCountAll(featured)} ล็อก
+                {rangeLabel(featured.startDate, featured.endDate)} ว่าง {freeLotCount(featuredLots)} ล็อก
               </span>
             </div>
             <div className="mt-5">
               <LotMap
                 event={featured}
+                lotStates={featuredLots}
                 mini
                 onSelect={(code) => navigate(`/events/${featured.id}?lots=${code}`)}
               />
@@ -119,9 +121,10 @@ export default function HomePage() {
           </div>
           <div className="divide-y divide-line border-y border-line">
             {list.map((e) => (
-              <EventListItem key={e.id} event={e} />
+              <EventListItem key={e.id} event={e} lotStates={lotsByEvent[e.id]} />
             ))}
-            {!list.length && <p className="py-10 text-center text-muted">ยังไม่มีงานประเภทนี้เปิดรับจอง</p>}
+            {isPending && <p className="py-10 text-center text-muted">กำลังโหลดงาน…</p>}
+            {!isPending && !list.length && <p className="py-10 text-center text-muted">ยังไม่มีงานประเภทนี้เปิดรับจอง</p>}
           </div>
           <Link to="/events" className="mt-6 inline-block text-cobalt font-semibold hover:underline underline-offset-4">
             ดูงานทั้งหมด

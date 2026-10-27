@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { PRODUCT_CATEGORIES, ROLE_LABEL } from '../../data/options'
-import { AUTH_RULES } from '../../data/settings'
 import { useAuth } from '../../hooks/useAuth'
+import { PASSWORD_HINT } from '../../services/auth'
 import type { RegisterErrors, RegisterInput } from '../../types'
 import PasswordInput from './PasswordInput'
 import SelectBox from '../common/SelectBox'
@@ -37,18 +37,28 @@ export default function RegisterForm({ lockedRole, onLogin, onRegistered }: Regi
     confirmPassword: '',
   })
   const [errors, setErrors] = useState<RegisterErrors>({})
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const seller = form.role === 'seller'
 
   const set = <K extends keyof RegisterInput>(key: K, value: RegisterInput[K]) => {
     setForm((f) => ({ ...f, [key]: value }))
     setErrors((e) => ({ ...e, [key]: undefined }))
+    setError('')
   }
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    const result = register(form)
+    if (busy) return
+    setBusy(true)
+    const result = await register(form)
+    setBusy(false)
     if (result.errors) {
       setErrors(result.errors)
+      return
+    }
+    if (result.error) {
+      setError(result.error)
       return
     }
     if (result.verifyEmail) onRegistered(result.verifyEmail)
@@ -127,7 +137,7 @@ export default function RegisterForm({ lockedRole, onLogin, onRegistered }: Regi
         value={form.password}
         onChange={(v) => set('password', v)}
         error={errors.password}
-        hint={`อย่างน้อย ${AUTH_RULES.minPasswordLength} ตัว มีทั้งตัวอักษรและตัวเลข`}
+        hint={PASSWORD_HINT}
       />
       <PasswordInput
         label="ยืนยันรหัสผ่าน"
@@ -137,11 +147,19 @@ export default function RegisterForm({ lockedRole, onLogin, onRegistered }: Regi
         error={errors.confirmPassword}
       />
 
+      {error && (
+        <p className="mt-3 text-sm text-danger" role="alert">
+          {error}
+        </p>
+      )}
+
       <div className="mt-6 flex justify-end gap-3">
         <button type="button" onClick={closeLogin} className="px-4 py-2.5 rounded-xl hover:bg-mist">
           ยกเลิก
         </button>
-        <button className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press">สมัครสมาชิก</button>
+        <button disabled={busy} className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press disabled:opacity-60">
+          {busy ? 'กำลังสมัคร…' : 'สมัครสมาชิก'}
+        </button>
       </div>
       <p className="mt-5 pt-4 border-t border-line text-sm text-muted text-center">
         มีบัญชีอยู่แล้ว?{' '}

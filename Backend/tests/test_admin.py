@@ -130,15 +130,67 @@ def test_cannot_suspend_admin_or_twice(put_user):
     assert call(lambda_handler, "POST", "/admin/users/s1/suspend", body, as_user=ADMIN)[0] == 409
 
 
-def test_list_events_newest_first(put_user):
+def _booking(booking_id: str, event_id: str, status: str, amount: int, **extra) -> None:
+    db.table("bookings").put_item(
+        Item={
+            "bookingId": booking_id,
+            "eventId": event_id,
+            "status": status,
+            "amount": amount,
+            "createdAt": "2026-10-03T00:00:00.000Z",
+            **extra,
+        }
+    )
+
+
+def test_list_events_newest_first_with_stats(put_user):
     events = db.table("events")
-    events.put_item(Item={"eventId": "e1", "createdAt": "2026-10-01T00:00:00.000Z"})
-    events.put_item(Item={"eventId": "e2", "createdAt": "2026-10-02T00:00:00.000Z"})
+    for event_id, created in (("e1", "2026-10-01"), ("e2", "2026-10-02")):
+        events.put_item(
+            Item={"eventId": event_id, "publishStatus": "DRAFT", "createdAt": f"{created}T00:00Z"}
+        )
+    _booking("b1", "e1", "APPROVED", 500)
+    _booking("b2", "e1", "APPROVED", 300)
+    _booking("b3", "e1", "PENDING_REVIEW", 500)
+    _booking("b4", "e1", "PENDING_PAYMENT", 500, expiresAt="2999-01-01T00:00:00.000Z")
+    _booking("b5", "e1", "PENDING_PAYMENT", 500, expiresAt="2000-01-01T00:00:00.000Z")
+    _booking("b6", "e1", "REJECTED", 500)
+    _booking("b7", "e1", "EXPIRED", 500)
 
     status, body = call(lambda_handler, "GET", "/admin/events", as_user=ADMIN)
 
     assert status == 200
-    assert [item["eventId"] for item in body["items"]] == ["e2", "e1"]
+    e2, e1 = body["items"]
+    assert [e2["eventId"], e1["eventId"]] == ["e2", "e1"]
+    assert e1["status"] == "DRAFT"
+    assert (e1["bookingCount"], e1["revenue"]) == (4, 800)
+    assert (e2["bookingCount"], e2["revenue"]) == (0, 0)
+
+
+def test_list_users_by_role(put_user):
+    put_user("s1", users.SELLER, shopName="ร้าน")
+    put_user("s2", users.SELLER, users.SUSPENDED)
+    put_user("o1", users.ORGANIZER, users.PENDING)
+
+    status, body = call(
+        lambda_handler, "GET", "/admin/users", as_user=ADMIN, query={"role": "seller"}
+    )
+
+    assert status == 200
+    assert sorted(item["userId"] for item in body["items"]) == ["s1", "s2"]
+    assert all("roleStatus" not in item for item in body["items"])
+
+    status, body = call(lambda_handler, "GET", "/admin/users", as_user=ADMIN)
+    assert sorted(item["userId"] for item in body["items"]) == ["admin-1", "o1", "s1", "s2"]
+
+
+def test_list_users_rejects_unknown_role_and_non_admin(put_user):
+    put_user("s1", users.SELLER)
+
+    status, body = call(lambda_handler, "GET", "/admin/users", as_user=ADMIN, query={"role": "x"})
+    assert status == 400
+    assert body["error"]["code"] == "INVALID_ROLE"
+    assert call(lambda_handler, "GET", "/admin/users", as_user=claims("s1", "Seller"))[0] == 403
 
 
 def test_unsuspend_user(put_user, user_pool):

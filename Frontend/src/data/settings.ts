@@ -68,12 +68,6 @@ export const GRID_LIMITS = {
 export const AUTH_RULES = {
   minPasswordLength: 8,
   otpLength: 6,
-  /** รหัส OTP ใช้ได้กี่นาที */
-  otpMinutes: 10,
+  /** กดส่งรหัสใหม่ได้อีกครั้งหลังกี่วินาที (Cognito ส่งอีเมลได้วันละ 50 ฉบับ) */
+  resendSeconds: 60,
 }
-
-/**
- * ยังไม่มีหลังบ้านส่งอีเมล จึงแสดงรหัส OTP บนหน้าจอให้ทดสอบได้
- * ตอนเชื่อม Cognito แล้วให้ปิดเป็น false
- */
-export const SHOW_OTP_ON_SCREEN = true

@@ -4,6 +4,7 @@ import { POWER_OPTIONS } from '../data/options'
 import { POLL_SECONDS } from '../data/settings'
 import { hashPassword, normalizeEmail } from '../services/auth'
 import { adminAccountIds, buildNotices, organizerAccountIds, shopAccountIds } from '../services/notifications'
+import { organizerFromMe, shopFromMe } from '../services/profileBridge'
 import { createSeedState, type AppData } from '../services/seed'
 import { deriveEvents, nextBookingId, sellerLotCount } from '../services/selectors'
 import type { Account, AppNotification, Booking } from '../types'
@@ -213,6 +214,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const syncProfile = useCallback<AppActions['syncProfile']>((me) => {
+    if (me.role === 'SELLER') {
+      setData((d) => {
+        const old = d.shops.find((s) => s.id === me.userId)
+        const shop = shopFromMe(me)
+        if (old && JSON.stringify(old) === JSON.stringify(shop)) return d
+        return { ...d, shops: old ? d.shops.map((s) => (s.id === shop.id ? shop : s)) : [...d.shops, shop] }
+      })
+    } else if (me.role === 'ORGANIZER') {
+      setData((d) => {
+        const old = d.organizers.find((o) => o.id === me.userId)
+        const organizer = organizerFromMe(me)
+        if (old && JSON.stringify(old) === JSON.stringify(organizer)) return d
+        return { ...d, organizers: old ? d.organizers.map((o) => (o.id === organizer.id ? organizer : o)) : [...d.organizers, organizer] }
+      })
+    }
+  }, [])
+
   const saveEvent = useCallback<AppActions['saveEvent']>((event) => {
     setData((d) => {
       const exists = d.events.some((e) => e.id === event.id)
@@ -312,11 +331,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       events, bookings: data.bookings, shops: data.shops, organizers: data.organizers, accounts: data.accounts,
       notifications: data.notifications, draft: data.draft,
       setDraft, submitBooking, approveBooking, rejectBooking, cancelBooking, updateShop, updateOrganizer, saveEvent,
-      createAccount, verifyAccountEmail, setAccountPassword, reviewOrganizer, setSuspended, markNotificationsRead,
+      createAccount, verifyAccountEmail, setAccountPassword, reviewOrganizer, setSuspended, markNotificationsRead, syncProfile,
     }),
     [
       events, data, setDraft, submitBooking, approveBooking, rejectBooking, cancelBooking, updateShop, updateOrganizer,
-      saveEvent, createAccount, verifyAccountEmail, setAccountPassword, reviewOrganizer, setSuspended, markNotificationsRead,
+      saveEvent, createAccount, verifyAccountEmail, setAccountPassword, reviewOrganizer, setSuspended, markNotificationsRead, syncProfile,
     ],
   )
 

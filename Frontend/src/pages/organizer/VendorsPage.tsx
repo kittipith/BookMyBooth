@@ -2,21 +2,19 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import ProgressBar from '../../components/common/ProgressBar'
 import { LIMITS } from '../../data/settings'
-import { useAppStore, useOrganizerData } from '../../hooks/useAppStore'
-import { vendorStats } from '../../services/selectors'
+import { useVendors } from '../../queries/organizer'
 import { baht } from '../../utils/format'
 import SelectBox from '../../components/common/SelectBox'
 
 type SortKey = 'approved' | 'total' | 'showRate'
 
 export default function VendorsPage() {
-  const { shops, events } = useAppStore()
-  const { myBookings } = useOrganizerData()
+  const { data: vendors = [], isPending, isError } = useVendors()
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortKey>('approved')
 
   const keyword = q.trim().toLowerCase()
-  const list = vendorStats(myBookings, events, shops)
+  const list = vendors
     .filter((v) => !keyword || `${v.shop.name} ${v.shop.category} ${v.shop.owner}`.toLowerCase().includes(keyword))
     .sort((a, b) => (b[sort] ?? -1) - (a[sort] ?? -1))
 
@@ -25,7 +23,7 @@ export default function VendorsPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-4xl font-bold">ผู้ขาย</h1>
-          <p className="mt-1 text-muted">ร้านที่เคยส่งคำขอจองล็อกในงานของคุณ {list.length} ร้าน</p>
+          <p className="mt-1 text-muted">ร้านที่เคยได้รับอนุมัติในงานของคุณ {list.length} ร้าน</p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
           <SelectBox
@@ -61,9 +59,7 @@ export default function VendorsPage() {
                   <Link to={`/organizer/bookings?tab=all&q=${encodeURIComponent(v.shop.name)}`} className="font-semibold hover:text-cobalt">
                     {v.shop.name}
                   </Link>
-                  <p className="text-sm text-muted">
-                    {v.shop.owner} · {v.shop.phone}
-                  </p>
+                  <p className="text-sm text-muted">{[v.shop.owner, v.shop.phone].filter(Boolean).join(' · ')}</p>
                 </td>
                 <td className="px-4 py-4 text-muted">{v.shop.category}</td>
                 <td className="px-4 py-4 text-right font-display font-semibold">{v.approved} ครั้ง</td>
@@ -96,7 +92,7 @@ export default function VendorsPage() {
             {!list.length && (
               <tr>
                 <td colSpan={6} className="px-6 py-14 text-center text-muted">
-                  {keyword ? 'ไม่พบร้านที่ค้นหา' : 'ยังไม่มีร้านจองในงานของคุณ'}
+                  {isPending ? 'กำลังโหลด…' : isError ? 'โหลดข้อมูลร้านไม่ได้' : keyword ? 'ไม่พบร้านที่ค้นหา' : 'ยังไม่มีร้านที่ได้รับอนุมัติในงานของคุณ'}
                 </td>
               </tr>
             )}

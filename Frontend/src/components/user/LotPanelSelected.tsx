@@ -1,24 +1,27 @@
-import { FEES } from '../../data/settings'
-import type { MarketEvent } from '../../types'
+import { eventDayCount, zonePrice } from '../../services/events'
+import type { PublicEvent } from '../../types'
 import { baht, rangeLabel } from '../../utils/format'
 import { lotSize } from '../../utils/layout'
-import { eventPrice, lotZoneId, zoneOf } from '../../utils/pricing'
+import { lotZoneId, zoneOf } from '../../utils/pricing'
 
 interface LotPanelSelectedProps {
-  event: MarketEvent
+  event: PublicEvent
   /** ล็อกที่เลือกไว้ จองพร้อมกันทั้งงานและจ่ายครั้งเดียว */
   lots: string[]
   /** เลือกเพิ่มได้อีกกี่ล็อก (null = ไม่จำกัด) */
   quotaLeft: number | null
   onRemove: (lot: string) => void
   onClear: () => void
-  onBook: () => void
+  /** ไม่ส่ง = ยังจองไม่ได้ (ระหว่างย้ายขั้นตอนจองไป API ถึงเฟส 5) */
+  onBook?: () => void
+  /** ข้อความใต้ปุ่มจองเมื่อจองไม่ได้ */
+  bookDisabledReason?: string
 }
 
-export default function LotPanelSelected({ event, lots, quotaLeft, onRemove, onClear, onBook }: LotPanelSelectedProps) {
-  const rent = lots.reduce((sum, lot) => sum + eventPrice(event, lotZoneId(lot)), 0)
-  const first = event.days[0]
-  const last = event.days[event.days.length - 1]
+export default function LotPanelSelected({ event, lots, quotaLeft, onRemove, onClear, onBook, bookDisabledReason }: LotPanelSelectedProps) {
+  // ยอดที่ต้องโอน = ราคาโซนของทุกล็อก ไม่มีค่าไฟหรือค่าธรรมเนียม (I2, F31)
+  const total = lots.reduce((sum, lot) => sum + zonePrice(event, lotZoneId(lot)), 0)
+  const days = eventDayCount(event)
 
   return (
     <div className="bg-surface border border-line rounded-2xl stamp overflow-hidden">
@@ -63,7 +66,7 @@ export default function LotPanelSelected({ event, lots, quotaLeft, onRemove, onC
         <div className="rounded-xl bg-mist px-4 py-3">
           <p className="text-sm text-muted">จองทั้งงาน</p>
           <p className="font-semibold">
-            {rangeLabel(first.date, last.date)} <span className="font-normal text-muted">({event.days.length} วัน)</span>
+            {rangeLabel(event.startDate, event.endDate)} <span className="font-normal text-muted">({days} วัน)</span>
           </p>
         </div>
         <ul className="mt-4 divide-y divide-line">
@@ -77,30 +80,26 @@ export default function LotPanelSelected({ event, lots, quotaLeft, onRemove, onC
                     โซน {zone?.id} {zone?.name} · {lotSize(event, code)}
                   </span>
                 </span>
-                <span className="font-display font-semibold whitespace-nowrap">{baht(eventPrice(event, lotZoneId(code)))}</span>
+                <span className="font-display font-semibold whitespace-nowrap">{baht(zone?.price ?? 0)}</span>
               </li>
             )
           })}
         </ul>
-        <div className="mt-3 pt-4 border-t border-line space-y-1.5 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted">
-              ค่าเช่า {lots.length} ล็อก ทั้งงาน {event.days.length} วัน
-            </span>
-            <span>{baht(rent)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted">ค่าธรรมเนียมระบบ{lots.length > 1 && ' (ครั้งเดียว)'}</span>
-            <span>{baht(FEES.service)}</span>
-          </div>
-          <div className="flex justify-between items-baseline pt-2">
-            <span className="font-semibold">รวม</span>
-            <span className="font-display text-3xl font-bold">{baht(rent + FEES.service)}</span>
-          </div>
+        <div className="mt-3 pt-4 border-t border-line flex justify-between items-baseline">
+          <span className="font-semibold">
+            รวม <span className="font-normal text-sm text-muted">ค่าเช่า {lots.length} ล็อก ทั้งงาน {days} วัน</span>
+          </span>
+          <span className="font-display text-3xl font-bold">{baht(total)}</span>
         </div>
-        <button type="button" onClick={onBook} className="mt-5 w-full bg-cobalt text-oncobalt rounded-xl py-3.5 font-semibold">
+        <button
+          type="button"
+          onClick={onBook}
+          disabled={!onBook}
+          className="mt-5 w-full bg-cobalt text-oncobalt rounded-xl py-3.5 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+        >
           {lots.length === 1 ? `จองล็อก ${lots[0]}` : `จอง ${lots.length} ล็อก จ่ายครั้งเดียว`}
         </button>
+        {!onBook && bookDisabledReason && <p className="mt-2 text-sm text-muted text-center">{bookDisabledReason}</p>}
       </div>
     </div>
   )

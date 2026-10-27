@@ -1,38 +1,61 @@
-import type { Booking } from '../types'
-import { useAppStore } from './useAppStore'
+import { errorMessage } from '../api/client'
+import { useApproveBooking, useCancelBookingAsOrganizer, useRejectBooking } from '../queries/organizer'
+import type { OrganizerBooking } from '../types'
 import { useToast } from './useToast'
 
-/** อนุมัติ ย้ายล็อก ไม่อนุมัติ และยกเลิกการจองของผู้จัดงาน พร้อมแจ้งผลให้เห็น */
+/** อนุมัติ ย้ายล็อก ไม่อนุมัติ และยกเลิกการจองของผู้จัดงาน พร้อมแจ้งผลหรือ error ให้เห็น */
 export function useBookingDecisions() {
-  const { approveBooking, rejectBooking, cancelBooking } = useAppStore()
+  const approveMutation = useApproveBooking()
+  const rejectMutation = useRejectBooking()
+  const cancelMutation = useCancelBookingAsOrganizer()
   const toast = useToast()
 
   return {
-    approve(b: Booking, moveTo?: string) {
-      const result = approveBooking(b.id, moveTo)
-      if (!result.ok) toast(result.error ?? 'อนุมัติไม่ได้', 'danger')
-      else toast(moveTo ? `ย้าย ${b.shopName} จาก ${b.lot} ไป ${moveTo} และอนุมัติแล้ว` : `อนุมัติ ${b.shopName} ล็อก ${b.lot} แล้ว`)
-      return result.ok
+    busy: approveMutation.isPending || rejectMutation.isPending || cancelMutation.isPending,
+    async approve(b: OrganizerBooking, moveTo?: string) {
+      try {
+        await approveMutation.mutateAsync({ booking: b, moveTo })
+      } catch (e) {
+        toast(errorMessage(e), 'danger')
+        return false
+      }
+      toast(moveTo ? `ย้าย ${b.shopName} จาก ${b.lot} ไป ${moveTo} และอนุมัติแล้ว` : `อนุมัติ ${b.shopName} ล็อก ${b.lot} แล้ว`)
+      return true
     },
-    approveMany(list: Booking[]) {
-      // ถ้าเลือกคำขอล็อกเดียวกันวันเดียวกันมาหลายรายการ อนุมัติได้แค่รายการแรก
-      const claimed = new Set<string>()
+    /** ทีละรายการ รายการที่สถานะเปลี่ยนไปแล้วข้ามไป แล้วสรุปผลครั้งเดียว */
+    async approveMany(list: OrganizerBooking[]) {
       let done = 0
-      list.forEach((b) => {
-        const keys = b.days.map((d) => `${b.eventId}|${d}|${b.lot}`)
-        if (keys.some((k) => claimed.has(k)) || !approveBooking(b.id).ok) return
-        keys.forEach((k) => claimed.add(k))
-        done++
-      })
-      toast(done === list.length ? `อนุมัติแล้ว ${done} รายการ` : `อนุมัติแล้ว ${done} จาก ${list.length} รายการ บางรายการขอล็อกซ้ำกันหรือล็อกไม่ว่าง`)
+      let lastError: unknown
+      for (const b of list) {
+        try {
+          await approveMutation.mutateAsync({ booking: b })
+          done++
+        } catch (e) {
+          lastError = e
+        }
+      }
+      if (done === list.length) toast(`อนุมัติแล้ว ${done} รายการ`)
+      else toast(`อนุมัติแล้ว ${done} จาก ${list.length} รายการ (${errorMessage(lastError)})`, 'danger')
     },
-    reject(b: Booking, reason: string) {
-      rejectBooking(b.id, reason)
+    async reject(b: OrganizerBooking, reason: string) {
+      try {
+        await rejectMutation.mutateAsync({ booking: b, reason })
+      } catch (e) {
+        toast(errorMessage(e), 'danger')
+        return false
+      }
       toast(`ไม่อนุมัติ ${b.shopName} ล็อก ${b.lot} แล้ว ระบบแจ้งผู้ขายพร้อมเหตุผล`)
+      return true
     },
-    cancel(b: Booking, reason: string) {
-      cancelBooking(b.id, reason, 'organizer')
-      toast(`ยกเลิกการจอง ${b.id} แล้ว ล็อก ${b.lot} กลับมาว่าง`)
+    async cancel(b: OrganizerBooking, reason: string) {
+      try {
+        await cancelMutation.mutateAsync({ booking: b, reason })
+      } catch (e) {
+        toast(errorMessage(e), 'danger')
+        return false
+      }
+      toast(`ยกเลิกการจองของ ${b.shopName} แล้ว ล็อก ${b.lot} กลับมาว่าง`)
+      return true
     },
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AUTH_RULES, SHOW_OTP_ON_SCREEN } from '../../data/settings'
+import { AUTH_RULES } from '../../data/settings'
 import { useAuth } from '../../hooks/useAuth'
 import type { OtpPurpose } from '../../store/authContext'
 
@@ -11,20 +11,29 @@ interface OtpFieldProps {
   error?: string
 }
 
-/** ช่องกรอกรหัส OTP พร้อมปุ่มส่งรหัสใหม่ (นับถอยหลัง) และกล่องแสดงรหัสในโหมดทดลอง */
+/** ช่องกรอกรหัสยืนยันจากอีเมล พร้อมปุ่มส่งรหัสใหม่ (เว้นระยะกันส่งถี่เกิน) */
 export default function OtpField({ email, purpose, value, onChange, error }: OtpFieldProps) {
-  const { sendOtp, lastOtp } = useAuth()
-  const ticket = lastOtp(email, purpose)
+  const { sendOtp, authMode } = useAuth()
+  // เพิ่งส่งรหัสไปตอนเปิดฟอร์มนี้ จึงเริ่มนับถอยหลังทันที
+  const [resendAt, setResendAt] = useState(() => Date.now() + AUTH_RULES.resendSeconds * 1000)
   const [now, setNow] = useState(() => Date.now())
+  const [sending, setSending] = useState(false)
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
 
-  const left = ticket ? Math.max(0, Math.ceil((ticket.expiresAt - now) / 1000)) : 0
-  const mm = String(Math.floor(left / 60)).padStart(2, '0')
-  const ss = String(left % 60).padStart(2, '0')
+  const wait = Math.max(0, Math.ceil((resendAt - now) / 1000))
+
+  const resend = async () => {
+    setSending(true)
+    const err = await sendOtp(email, purpose)
+    setSending(false)
+    setNotice(err ?? 'ส่งรหัสใหม่แล้ว ตรวจสอบอีเมล (รวมถึงโฟลเดอร์สแปม)')
+    if (!err) setResendAt(Date.now() + AUTH_RULES.resendSeconds * 1000)
+  }
 
   return (
     <>
@@ -45,15 +54,18 @@ export default function OtpField({ email, purpose, value, onChange, error }: Otp
         {error && <span className="mt-1 block text-xs text-danger">{error}</span>}
       </label>
       <div className="mt-2 flex justify-between text-sm text-muted">
-        <span>{left > 0 ? `รหัสหมดอายุใน ${mm}:${ss}` : 'รหัสหมดอายุแล้ว'}</span>
-        <button type="button" onClick={() => sendOtp(email, purpose)} className="text-cobalt font-semibold hover:underline underline-offset-4">
-          ส่งรหัสใหม่
+        <span>{notice || 'ยังไม่ได้รับรหัส?'}</span>
+        <button
+          type="button"
+          onClick={resend}
+          disabled={wait > 0 || sending}
+          className="text-cobalt font-semibold hover:underline underline-offset-4 disabled:text-muted disabled:no-underline"
+        >
+          {sending ? 'กำลังส่ง…' : wait > 0 ? `ส่งรหัสใหม่ได้ใน ${wait} วิ` : 'ส่งรหัสใหม่'}
         </button>
       </div>
-      {SHOW_OTP_ON_SCREEN && ticket && (
-        <p className="mt-4 text-sm bg-mist rounded-lg px-3 py-2">
-          โหมดทดลอง ยังไม่ได้เชื่อมระบบส่งอีเมล รหัสที่ส่งไปคือ <b className="font-display tracking-widest">{ticket.code}</b>
-        </p>
+      {authMode === 'dev' && (
+        <p className="mt-4 text-sm bg-mist rounded-lg px-3 py-2">โหมดทดลอง (API จำลอง) ไม่มีอีเมลจริง กรอกตัวเลขอะไรก็ได้ {AUTH_RULES.otpLength} หลัก</p>
       )}
     </>
   )

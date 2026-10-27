@@ -3,6 +3,7 @@
 > ใช้ตอนสัปดาห์ 11–12 (ขึ้น AWS) · สร้างทุกอย่างเองผ่าน **AWS Console** ใน AWS Academy Learner Lab ไม่ใช้ SAM / CloudFormation
 > แผนละเอียดอยู่ที่ [Backend/PLAN.md](Backend/PLAN.md) หัวข้อ 3 · จดชื่อ/ID ที่สร้างจริงไว้ใน [Backend/PROGRESS.md](Backend/PROGRESS.md) สัปดาห์ 11
 > ⚠️ ทีมตกลงกันว่า **ถ้ามีอะไรต้องสร้างเพิ่มนอกเหนือจากเอกสารนี้ ให้ถามก่อน**
+> ก่อนขึ้น AWS ใช้ API จำลองในเครื่อง ([INTEGRATION-PLAN.md](INTEGRATION-PLAN.md)) — ตอนสลับมา AWS ดูหัวข้อ 14
 
 ---
 
@@ -245,7 +246,7 @@ zip นี้ใช้ **ไฟล์เดียวกันทุก function*
 7. **Throttling** → Stage `$default` → Default route throttling: **Burst 10 / Rate 20** (ไม่ให้เกิน limit 10 concurrent ของ Lab)
 8. จด **Invoke URL** (เช่น `https://abc123.execute-api.us-east-1.amazonaws.com`)
 
-### 6.1 Routes ทั้งหมด (31 route)
+### 6.1 Routes ทั้งหมด (32 route)
 ใน Console ใช้ `{eventId}` / `{bookingId}` / `{userId}` เป็นตัวแปร path (โค้ดอ่านจาก path จริง ไม่สนชื่อตัวแปร)
 
 | # | Method | Path | Integration | Authorizer |
@@ -277,6 +278,7 @@ zip นี้ใช้ **ไฟล์เดียวกันทุก function*
 | 25 | POST | `/admin/users/{userId}/suspend` | admin | ✅ cognito |
 | 26 | POST | `/admin/users/{userId}/unsuspend` | admin | ✅ cognito |
 | 27 | GET | `/admin/events` | admin | ✅ cognito |
+| 27b | GET | `/admin/users` | admin | ✅ cognito — route ใหม่ (I5) โค้ดพร้อมแล้ว อย่าลืมสร้างใน Console |
 | 28 | GET | `/me` | me | ✅ cognito |
 | 29 | PUT | `/me` | me | ✅ cognito |
 | 30 | GET | `/notifications` | me | ✅ cognito |
@@ -402,3 +404,46 @@ python scripts/build_zip.py
 
 ## 13. เมื่อบัญชี Lab ถูก reset
 ทุกอย่างหายหมด ให้ทำข้อ 2 → 9 ใหม่ตามลำดับ แล้วอัปเดตค่าใน Amplify (ข้อ 8) และตาราง "Resource ที่สร้างจริง" ใน PROGRESS.md
+
+---
+
+## 14. ย้ายจาก API จำลองในเครื่องไป AWS
+
+ก่อนขึ้น AWS ทีมพัฒนาและเชื่อม frontend กับ `Backend/scripts/local_api.py` (ดู [INTEGRATION-PLAN.md](INTEGRATION-PLAN.md) หัวข้อ 4) ตอนสลับไป AWS ให้ทำตามนี้
+
+### 14.1 ฝั่ง Backend — **ไม่ต้องแก้โค้ดใน `src/`**
+| เรื่อง | API จำลอง | AWS | ต้องทำ |
+|---|---|---|---|
+| โค้ด Lambda | `local_api.py` import handler จาก `src/` ตรง ๆ | `build/lambda.zip` | รัน `build_zip.py` แล้วอัปโหลด (ข้อ 5) — zip **ไม่มี** `scripts/` จึงไม่มีโค้ด dev ติดไป |
+| ตาราง / bucket / user pool | moto server สร้างให้ตอนเปิด จาก `tests/tables.py` | สร้างใน Console (ข้อ 2–4) | สร้างให้ **ตรงกับ `tests/tables.py`** ทุก key และ index |
+| `AWS_ENDPOINT_URL` | `http://127.0.0.1:5000` (ชี้ไป moto server ต้องติดตั้ง `requirements-dev.txt` ที่มี `moto[server]`) | **ต้องไม่มี** | ห้ามใส่ env นี้ใน Lambda ไม่งั้น boto3 จะไปหา localhost |
+| ชื่อตาราง / env | `local_api.py` ตั้งให้เอง | ข้อ 5.3 | ตั้ง env ของ Lambda ให้ครบ |
+| ตรวจ token | `local_api.py` แปลง `Bearer dev.<userId>` เป็น claims | API Gateway JWT authorizer (ข้อ 6.4) | ผูก authorizer ทุก route ที่ไม่ใช่สาธารณะ |
+| CORS | `local_api.py` ใส่ header ให้ | API Gateway CORS (ข้อ 6.3) + S3 CORS (ข้อ 3) | ใส่โดเมน Amplify |
+| route ใหม่ | เพิ่มในตาราง `ROUTES` ของ `local_api.py` | สร้างใน Console ข้อ 6.1 | แก้ทั้งสองที่ให้ตรงกัน |
+| สมัคร / ยืนยัน / ล็อกอิน / ลืมรหัสผ่าน | `/_dev/sign-up`, `/_dev/confirm`, `/_dev/sign-in`, `/_dev/reset-password` | Cognito จริง + PostConfirmation trigger (ข้อ 4.9) | ตั้ง trigger — endpoint `/_dev/*` ไม่มีบน AWS |
+| หมดเวลาจอง | `POST /_dev/expire` (กดเอง) | EventBridge Scheduler (ข้อ 7) | ทดสอบ `iam:PassRole` |
+| ข้อมูลเดโม | seed ให้ทุกครั้งที่เปิด (หายเมื่อปิด) | `scripts/seed.py` (ข้อ 9) ครั้งเดียว | รัน seed ด้วย credentials ของ Lab |
+
+### 14.2 ฝั่ง Frontend — เปลี่ยนแค่ค่า env
+| Key | API จำลอง (`.env.local`) | AWS (Amplify → Environment variables) |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:3001` | Invoke URL (ข้อ 6) |
+| `VITE_AUTH_MODE` | `dev` | `cognito` |
+| `VITE_USER_POOL_ID` | ไม่ใช้ | User Pool ID (ข้อ 4) |
+| `VITE_USER_POOL_CLIENT_ID` | ไม่ใช้ | Client ID (ข้อ 4) |
+| `VITE_REGION` | ไม่ใช้ | `us-east-1` |
+
+โค้ด frontend เลือก auth adapter จาก `VITE_AUTH_MODE` (`src/auth/devAdapter.ts` ↔ `src/auth/cognitoAdapter.ts`) ส่วนเรียก API ใช้ `src/api/client.ts` ตัวเดียวกันทั้งสองโหมด
+
+### 14.3 สิ่งที่ทำงานต่างกันระหว่างสองโหมด (ต้องทดสอบซ้ำบน AWS)
+| เรื่อง | API จำลอง | AWS |
+|---|---|---|
+| OTP ยืนยันอีเมล / รีเซ็ตรหัสผ่าน | ไม่มีอีเมลจริง (ข้ามรหัส) | Cognito ส่งอีเมลจริง (วันละ 50 ฉบับ) |
+| token หมดอายุ | ไม่หมด | access token 1 ชม. → frontend ต้อง refresh ผ่าน Amplify |
+| group หลังอนุมัติผู้จัดงาน | มีผลทันที (อ่านจาก Cognito จำลองทุก request) | ต้อง `fetchAuthSession({ forceRefresh: true })` ก่อน |
+| error 401 จาก authorizer | `{"message":"Unauthorized"}` เลียนแบบ API Gateway (route ไม่มี → `404 {"message":"Not Found"}`) | เหมือนกัน — frontend เช็ก status code อย่างเดียว |
+| หมดเวลาจองอัตโนมัติ | ต้องกด `/_dev/expire` หรือรอ fallback | Scheduler ยิงเอง |
+| ข้อมูล | หายเมื่อปิดเซิร์ฟเวอร์ | อยู่ถาวรใน DynamoDB/S3 |
+
+ไล่ checklist ใน INTEGRATION-PLAN หัวข้อ 6 ซ้ำอีกรอบบน AWS

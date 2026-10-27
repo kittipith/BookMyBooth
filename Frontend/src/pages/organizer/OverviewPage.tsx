@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import DailyBarChart from '../../components/organizer/DailyBarChart'
+import CheckInPanel from '../../components/organizer/CheckInPanel'
 import PendingQueue from '../../components/organizer/PendingQueue'
 import BookingReasonDialog from '../../components/popup/BookingReasonDialog'
 import ZoneFillBars from '../../components/organizer/ZoneFillBars'
 import { LIMITS } from '../../data/settings'
-import { useOrganizerData } from '../../hooks/useAppStore'
+import { useAccountProfile } from '../../hooks/useAuth'
 import { useBookingDecisions } from '../../hooks/useBookingDecisions'
-import { byNewest, checkinCount, dailyBookingCounts, monthRevenue, nextEvent } from '../../services/selectors'
-import type { Booking } from '../../types'
+import { useEventLots } from '../../queries/events'
+import { bookableEventIds, useEventSummaries, useOrganizerBookings } from '../../queries/organizer'
+import { monthRevenue, nextEvent, soldStats } from '../../services/organizer'
+import type { OrganizerBooking } from '../../types'
 import { baht, diffDays, firstName, fullTitle, shortDate, TODAY } from '../../utils/format'
-import { soldStats } from '../../utils/pricing'
 
 const STRIP = 42
 
@@ -24,23 +25,26 @@ function startsIn(date: string) {
 
 export default function OverviewPage() {
   const navigate = useNavigate()
-  const { organizer, myEvents, myBookings } = useOrganizerData()
+  const profile = useAccountProfile()
+  const { events, bookings } = useOrganizerBookings()
+  const summaries = useEventSummaries(bookableEventIds(events))
   const { approve, reject } = useBookingDecisions()
-  const [rejecting, setRejecting] = useState<Booking | null>(null)
+  const [rejecting, setRejecting] = useState<OrganizerBooking | null>(null)
 
-  const pending = myBookings.filter((b) => b.status === 'pending').sort(byNewest)
-  const next = nextEvent(myEvents)
-  const stats = next ? soldStats(next) : null
-  const filled = stats && stats.total ? Math.round((stats.sold / stats.total) * STRIP) : 0
-  const thisMonth = monthRevenue(myEvents, myBookings, 0)
-  const diff = thisMonth - monthRevenue(myEvents, myBookings, -1)
-  const daily = dailyBookingCounts(myBookings)
+  const pending = bookings.filter((b) => b.status === 'pending')
+  const next = nextEvent(events)
+  const { data: nextStates } = useEventLots(next?.id)
+  const stats = soldStats(next && summaries[next.id])
+  const filled = stats.total ? Math.round((stats.sold / stats.total) * STRIP) : 0
+  const thisMonth = monthRevenue(events, summaries, 0)
+  const diff = thisMonth - monthRevenue(events, summaries, -1)
+  const toCheckIn = next ? bookings.filter((b) => b.eventId === next.id && b.status === 'approved').length : 0
 
   return (
     <section>
-      <h1 className="font-display text-[clamp(2rem,4vw,3rem)] font-bold leading-tight">สวัสดีคุณ{firstName(organizer.contactName)}</h1>
+      <h1 className="font-display text-[clamp(2rem,4vw,3rem)] font-bold leading-tight">สวัสดีคุณ{firstName(profile?.name ?? '')}</h1>
       <p className="mt-1 text-muted text-lg">
-        {next ? `${next.title}${startsIn(next.days[0].date)} และ` : ''}มีคำขอรออนุมัติ {pending.length} รายการ
+        {next ? `${next.title}${startsIn(next.startDate)} และ` : ''}มีคำขอรออนุมัติ {pending.length} รายการ
       </p>
 
       <div className="mt-8 grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -59,7 +63,7 @@ export default function OverviewPage() {
         <div className="bg-surface border border-line rounded-2xl p-5">
           <p className="text-sm text-muted">ล็อกที่ขายแล้ว {next ? (next.round ?? next.title) : ''}</p>
           <p className="font-display text-4xl font-bold mt-2">
-            {stats?.sold ?? 0} <span className="text-lg text-muted font-medium">/ {stats?.total ?? 0}</span>
+            {stats.sold} <span className="text-lg text-muted font-medium">/ {stats.total}</span>
           </p>
           <div className="mt-3 flex gap-[2px]" aria-hidden="true">
             {Array.from({ length: STRIP }, (_, i) => (
@@ -71,8 +75,8 @@ export default function OverviewPage() {
           <p className="text-sm text-muted">วันงานถัดไป</p>
           {next ? (
             <>
-              <p className="font-display text-4xl font-bold mt-2">{shortDate(next.days[0].date).label}</p>
-              <p className="text-sm text-muted mt-2">ผู้ขายต้องเช็กอิน {checkinCount(next)} ร้าน</p>
+              <p className="font-display text-4xl font-bold mt-2">{shortDate(next.startDate).label}</p>
+              <p className="text-sm text-muted mt-2">ผู้ขายต้องเช็กอิน {toCheckIn} ร้าน</p>
             </>
           ) : (
             <p className="font-display text-2xl font-bold mt-2">ยังไม่มีงาน</p>
@@ -90,29 +94,22 @@ export default function OverviewPage() {
           </div>
           <PendingQueue
             bookings={pending.slice(0, LIMITS.overviewQueue)}
-            events={myEvents}
+            events={events}
             onOpen={(b) => navigate(`/organizer/bookings?tab=pending&id=${b.id}`)}
-            onApprove={approve}
+            onApprove={(b) => approve(b)}
             onReject={setRejecting}
           />
         </div>
         <div className="min-w-0 space-y-6">
           <div className="bg-surface border border-line rounded-2xl p-6">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-display text-xl font-semibold">การจองรายวัน</h2>
-              <span className="text-sm text-muted">
-                {daily.length} วันล่าสุด รวม {daily.reduce((s, d) => s + d.count, 0)} คำขอ
-              </span>
-            </div>
-            <DailyBarChart data={daily} />
+            <h2 className="font-display text-xl font-semibold">เช็กอินหน้างาน</h2>
+            <CheckInPanel events={events} bookings={bookings} />
           </div>
-          {next && (
+          {next && nextStates && (
             <div className="bg-surface border border-line rounded-2xl p-6">
               <h2 className="font-display text-xl font-semibold">ความเต็มของแต่ละโซน</h2>
-              <p className="text-sm text-muted">
-                {fullTitle(next)} ทั้ง {next.days.length} วัน
-              </p>
-              <ZoneFillBars event={next} />
+              <p className="text-sm text-muted">{fullTitle(next)} ล็อกที่อนุมัติแล้ว</p>
+              <ZoneFillBars event={next} states={nextStates} />
             </div>
           )}
         </div>
@@ -122,9 +119,8 @@ export default function OverviewPage() {
         kind="reject"
         booking={rejecting}
         onClose={() => setRejecting(null)}
-        onConfirm={(b, reason) => {
-          reject(b, reason)
-          setRejecting(null)
+        onConfirm={async (b, reason) => {
+          if (await reject(b, reason)) setRejecting(null)
         }}
       />
     </section>

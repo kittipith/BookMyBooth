@@ -1,19 +1,15 @@
 import { useState, type FormEvent } from 'react'
-import { AUTH_RULES } from '../../data/settings'
-import { useAppStore } from '../../hooks/useAppStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useToast } from '../../hooks/useToast'
-import { normalizeEmail } from '../../services/auth'
+import { isEmail, PASSWORD_HINT } from '../../services/auth'
 import OtpField from './OtpField'
 import PasswordInput from './PasswordInput'
 
 const field = 'mt-2 w-full bg-surface border border-line rounded-lg px-3 py-2.5 outline-none focus:border-cobalt'
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** ลืมรหัสผ่าน: กรอกอีเมล รับรหัส OTP แล้วตั้งรหัสผ่านใหม่ */
+/** ลืมรหัสผ่าน: กรอกอีเมล รับรหัสทางอีเมล แล้วตั้งรหัสผ่านใหม่ */
 export default function ForgotPasswordForm({ onDone }: { onDone: () => void }) {
   const { sendOtp, resetPassword } = useAuth()
-  const { accounts } = useAppStore()
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
@@ -21,26 +17,36 @@ export default function ForgotPasswordForm({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const requestCode = (e: FormEvent) => {
+  const requestCode = async (e: FormEvent) => {
     e.preventDefault()
-    if (!EMAIL_PATTERN.test(email.trim())) {
+    if (busy) return
+    if (!isEmail(email)) {
       setError('รูปแบบอีเมลไม่ถูกต้อง')
       return
     }
-    // ไม่บอกว่ามีบัญชีนี้หรือไม่ เพื่อไม่ให้ใช้เดาอีเมลในระบบได้
-    if (accounts.some((a) => a.email === normalizeEmail(email))) sendOtp(email, 'reset')
+    setBusy(true)
+    const err = await sendOtp(email, 'reset')
+    setBusy(false)
+    if (err) {
+      setError(err)
+      return
+    }
     setSent(true)
     setError('')
   }
 
-  const submitReset = (e: FormEvent) => {
+  const submitReset = async (e: FormEvent) => {
     e.preventDefault()
+    if (busy) return
     if (password !== confirm) {
       setError('รหัสผ่านทั้งสองช่องไม่ตรงกัน')
       return
     }
-    const err = resetPassword(email, code, password)
+    setBusy(true)
+    const err = await resetPassword(email, code, password)
+    setBusy(false)
     if (err) {
       setError(err)
       return
@@ -72,7 +78,9 @@ export default function ForgotPasswordForm({ onDone }: { onDone: () => void }) {
           <button type="button" onClick={onDone} className="px-4 py-2.5 rounded-xl hover:bg-mist">
             กลับไปเข้าสู่ระบบ
           </button>
-          <button className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press">ส่งรหัส</button>
+          <button disabled={busy} className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press disabled:opacity-60">
+            {busy ? 'กำลังส่ง…' : 'ส่งรหัส'}
+          </button>
         </div>
       </form>
     )
@@ -84,13 +92,7 @@ export default function ForgotPasswordForm({ onDone }: { onDone: () => void }) {
         ถ้ามีบัญชีของ <b className="text-ink">{email}</b> ในระบบ เราส่งรหัสไปแล้ว กรอกรหัสและตั้งรหัสผ่านใหม่
       </p>
       <OtpField email={email} purpose="reset" value={code} onChange={setCode} />
-      <PasswordInput
-        label="รหัสผ่านใหม่"
-        autoComplete="new-password"
-        value={password}
-        onChange={setPassword}
-        hint={`อย่างน้อย ${AUTH_RULES.minPasswordLength} ตัว มีทั้งตัวอักษรและตัวเลข`}
-      />
+      <PasswordInput label="รหัสผ่านใหม่" autoComplete="new-password" value={password} onChange={setPassword} hint={PASSWORD_HINT} />
       <PasswordInput label="ยืนยันรหัสผ่านใหม่" autoComplete="new-password" value={confirm} onChange={setConfirm} />
       {error && (
         <p className="mt-3 text-sm text-danger" role="alert">
@@ -101,7 +103,9 @@ export default function ForgotPasswordForm({ onDone }: { onDone: () => void }) {
         <button type="button" onClick={() => setSent(false)} className="px-4 py-2.5 rounded-xl hover:bg-mist">
           เปลี่ยนอีเมล
         </button>
-        <button className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press">ตั้งรหัสผ่านใหม่</button>
+        <button disabled={busy} className="bg-cobalt text-oncobalt rounded-xl px-6 py-2.5 font-semibold press disabled:opacity-60">
+          {busy ? 'กำลังบันทึก…' : 'ตั้งรหัสผ่านใหม่'}
+        </button>
       </div>
     </form>
   )
