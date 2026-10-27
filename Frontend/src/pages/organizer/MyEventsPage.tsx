@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import ProgressBar from '../../components/common/ProgressBar'
 import { EventStatusBadge } from '../../components/common/StatusBadge'
 import { useEventSummaries, useMyEvents } from '../../queries/organizer'
-import { lotLimitLabel } from '../../services/selectors'
+import { lotLimitLabel } from '../../services/events'
 import type { EventStatus } from '../../types'
 import { baht, bangkokDate, fullTitle, rangeLabel } from '../../utils/format'
 

@@ -1,8 +1,7 @@
 import type { UserDto } from '../api/dto'
 import type { SignupProfile } from '../auth'
 import { AUTH_RULES } from '../data/settings'
-import type { Account, Organizer, RegisterErrors, RegisterInput, Shop } from '../types'
-import { sha256 } from '../utils/sha256'
+import type { RegisterErrors, RegisterInput } from '../types'
 
 export const AUTH_ERROR = {
   missing: 'กรอกอีเมลและรหัสผ่าน',
@@ -26,11 +25,6 @@ const PHONE_PATTERN = /^0\d{8,9}$/
 export const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
 export const isEmail = (email: string) => EMAIL_PATTERN.test(email.trim())
-
-/** ใส่อีเมลเป็น salt ให้รหัสผ่านเดียวกันของคนละบัญชีได้ hash ไม่ซ้ำกัน (ข้อมูลจำลองเดิม ลบในเฟส 8) */
-export function hashPassword(email: string, password: string) {
-  return sha256(`${normalizeEmail(email)}:${password}`)
-}
 
 /** ตรวจฟอร์มสมัครสมาชิก คืนข้อความผิดพลาดแยกตามช่อง (ว่าง = ผ่าน) อีเมลซ้ำ Cognito เป็นคนบอก */
 export function validateRegistration(input: RegisterInput): RegisterErrors {
@@ -66,15 +60,4 @@ export function meProfile(me: UserDto) {
   if (me.role === 'SELLER') return { name, org: me.shopName ?? '' }
   if (me.role === 'ADMIN') return { name, org: 'ทีมดูแลระบบ' }
   return { name, org: me.orgName ?? '' }
-}
-
-/** ชื่อที่แสดงของบัญชีในข้อมูลจำลอง (หน้า Admin เดิม เปลี่ยนในเฟส 7) */
-export function accountProfile(account: Account, shops: Shop[], organizers: Organizer[]) {
-  if (account.role === 'seller') {
-    const shop = shops.find((s) => s.id === account.shopId)
-    return { name: shop?.owner ?? account.email, org: shop?.name ?? '' }
-  }
-  if (account.role === 'admin') return { name: account.displayName ?? account.email, org: 'ทีมดูแลระบบ' }
-  const organizer = organizers.find((o) => o.id === account.organizerId)
-  return { name: organizer?.contactName ?? account.email, org: organizer?.name ?? '' }
 }

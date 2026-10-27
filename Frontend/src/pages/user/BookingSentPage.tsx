@@ -6,7 +6,7 @@ import { POLICY } from '../../data/settings'
 import { useMyBookings } from '../../queries/bookings'
 import { useEventDetail } from '../../queries/events'
 import { activeLots, groupOf } from '../../services/bookings'
-import { lotLimitReached } from '../../services/selectors'
+import { lotLimitReached } from '../../services/events'
 
 /** ผลหลังส่งสลิป (หรือเปิดดูชุดการจองที่ไม่ได้รอสลิปแล้ว) */
 export default function BookingSentPage() {

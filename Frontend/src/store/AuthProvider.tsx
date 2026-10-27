@@ -5,7 +5,6 @@ import { getMe } from '../api/me'
 import { accountFromDto, roleFromDto } from '../api/mappers'
 import { AuthError, authAdapter, authErrorMessage, SUSPENDED_MESSAGE, type SignupProfile } from '../auth'
 import { ROLE_LABEL } from '../data/options'
-import { useAppStore } from '../hooks/useAppStore'
 import { queryKeys } from '../queries/queryKeys'
 import { clearDraft } from '../services/bookingDraft'
 import { AUTH_ERROR, meProfile, normalizeEmail, passwordError, signupProfile, validateRegistration } from '../services/auth'
@@ -51,7 +50,6 @@ const fetchMe = { queryKey: queryKeys.me, queryFn: ({ signal }: { signal: AbortS
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient()
-  const { setDraft, syncProfile } = useAppStore()
   const [session, setSession] = useState<Session>('checking')
   const [loginRequest, setLoginRequest] = useState<LoginRequest | null>(null)
   // รหัสผ่านที่เพิ่งกรอก ใช้เข้าสู่ระบบให้ต่อทันทีหลังยืนยันอีเมล (อยู่ในหน่วยความจำเท่านั้น)
@@ -69,10 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     pending.current = null
     setSession('out')
     client.clear()
-    setDraft(null)
     clearDraft()
     await authAdapter.signOut().catch(() => {})
-  }, [client, setDraft])
+  }, [client])
 
   // เปิดหน้า: มี token เดิมก็โหลดโปรไฟล์ก่อนแสดงหน้า ไม่งั้นหน้าที่ต้องล็อกอินจะเด้ง popup แวบหนึ่ง
   useEffect(() => {
@@ -109,11 +106,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else if (error.status === 401) setLoginRequest({ message: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง' })
     })
   }, [signOutLocal])
-
-  // ชั่วคราวจนถึงเฟส 8: หน้าที่ยังใช้ข้อมูลจำลองหาร้าน/ผู้จัดงานจาก userId
-  useEffect(() => {
-    if (me) syncProfile(me)
-  }, [me, syncProfile])
 
   // สถานะบัญชีเปลี่ยน (เช่น Admin อนุมัติผู้จัดงาน) ต้องขอ token ใหม่ให้ได้ group ล่าสุด (F7)
   const lastStatus = useRef<string | null>(null)

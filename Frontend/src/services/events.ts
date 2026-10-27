@@ -16,4 +16,13 @@ export const lotStateOf = (states: LotStates, code: string): LotState => states[
 
 export const freeLotCount = (states: LotStates | undefined) => Object.values(states ?? {}).filter((s) => s === 'free').length
 
+/** ร้านที่ถือล็อกไว้ count ล็อกแล้ว จองเพิ่มไม่ได้ (งานที่ไม่จำกัดจำนวนจะไม่มีวันครบ) */
+export function lotLimitReached(event: Pick<PublicEvent, 'maxLotsPerSeller'>, count: number) {
+  return event.maxLotsPerSeller !== null && count >= event.maxLotsPerSeller
+}
+
+export function lotLimitLabel(event: Pick<PublicEvent, 'maxLotsPerSeller'>) {
+  return event.maxLotsPerSeller === null ? 'จองได้ไม่จำกัดจำนวนล็อก' : `จองได้ไม่เกิน ${event.maxLotsPerSeller} ล็อกต่อร้าน`
+}
+
 export const lotCount = (states: LotStates | undefined) => Object.keys(states ?? {}).length

@@ -120,7 +120,7 @@
 | 5 | ผู้ขายจองและแนบสลิป | ✅ |
 | 6 | ตรวจการจอง หน้างาน สถิติ | ✅ |
 | 7 | Admin และแจ้งเตือน | ✅ |
-| 8 | เก็บกวาด store/seed เดิม | ⬜ |
+| 8 | เก็บกวาด store/seed เดิม | ✅ |
 | 9 | สลับไป AWS (สัปดาห์ 11) | ⬜ |
 
 ### เฟส 0 ✅
@@ -214,6 +214,15 @@
 - [x] `npm run build` + `lint` ผ่าน · เปิดหน้า Admin ทั้ง 3 หน้ากับ API จำลองแล้วแสดงข้อมูลได้ ไม่มี error ใหม่ · กระดิ่ง poll `/notifications` ได้ 200
 - [ ] ยังไม่ได้กดทดสอบ flow ตามหน้าจอ (ผู้ใช้ทดสอบเอง): อนุมัติ/ไม่อนุมัติผู้จัดงาน, ระงับ/ยกเลิกระงับ, ผู้จัดงานรออนุมัติเห็นผลภายใน 30 วิ, กดแจ้งเตือนแล้วไปหน้าที่ถูก, อ่านทั้งหมด
 
+### เฟส 8 ✅
+- [x] เอา `AppProvider` ออกจาก `App.tsx` · `AuthProvider` เลิกใช้ `syncProfile`/`setDraft` ของ store เดิม · `UserLayout` นับป้าย "การจองของฉัน" จาก `GET /bookings/me` (รอแนบสลิป + รออนุมัติ)
+- [x] ลบ `store/AppProvider.tsx`, `store/appContext.ts`, `hooks/useAppStore.ts`, `services/{seed,notifications,selectors,profileBridge}.ts`, `utils/sha256.ts`, `data/{accounts,bookings,events,shops,organizers,notifications}.ts`, `components/organizer/DailyBarChart.tsx` (`DayPricingTable` ลบไปแล้วในเฟส 4)
+- [x] `lotLimitReached` / `lotLimitLabel` ย้ายไป `services/events.ts` · `services/auth.ts` ตัด `hashPassword` / `accountProfile` · `utils/pricing.ts` เหลือ `zoneOf`, `lotZoneId` (ตัดค่าไฟ/ค่าธรรมเนียม/ราคารายวัน — I2, D1)
+- [x] `types.ts` ตัด `MarketEvent`, `EventRecord`, `EventDay(Record)`, `Booking`, `Organizer`, `BookingDraft` และฟิลด์จำลองใน `Account` (`passwordHash`, `emailVerified`, `shopId`, `organizerId`) · `data/settings.ts` ตัด `FEES`, `WEEKEND_SURCHARGE`, `chartDays`
+- [x] `main.tsx` ลบ key `bookmybooth-data-v1` / `bookmybooth-session` ที่ค้างใน `localStorage`
+- [x] `npm run build` + `lint` ผ่าน · ไม่มี import จาก `data/*` ที่เป็นข้อมูลจำลองเหลือ · เปิดหน้า Admin และการจองของผู้ขายกับ API จำลองได้
+- [ ] ยังไม่ได้ไล่ checklist INTEGRATION-PLAN หัวข้อ 6 ครบกับ API จำลอง (ผู้ใช้ทดสอบเอง)
+
 ## สัปดาห์ 11 — ขึ้น AWS และทดสอบ (PLAN 3, 10.2, 11.2)
 > ทำตาม [AWS-SETUP.md](../AWS-SETUP.md) ทีละข้อ
 - [ ] สร้าง DynamoDB 5 ตาราง + GSI + TTL (PLAN 3.1)
@@ -284,14 +293,14 @@
 | F1 | เชื่อม Cognito (`aws-amplify/auth`) แทนบัญชีจำลอง | 🟨 `src/auth/cognitoAdapter.ts` เขียนแล้ว ทดสอบจริงตอนเฟส 9 (โหมด dev ผ่านแล้ว) |
 | F2 | แนบ `Authorization: Bearer <accessToken>` | ✅ |
 | F3 | อ่าน error `{ error: { code, message, details } }` | 🟨 `ApiError` + toast อัตโนมัติพร้อม (เฟส 1) หน้าจอใช้จริงตามเฟส |
-| F4 | map ค่าสถานะตัวพิมพ์ใหญ่ | 🟨 สถานะ งาน ล็อก การจอง ผู้ใช้ แจ้งเตือน ครบแล้ว · ลบ type เดิมเฟส 8 |
-| F5 | ใช้ `userId` แทน accountId/shopId/organizerId | 🟨 บัญชี งาน การจอง และหน้า Admin ใช้ `userId` แล้ว · ลบ `shopId`/`organizerId` ของข้อมูลจำลองเฟส 8 |
+| F4 | map ค่าสถานะตัวพิมพ์ใหญ่ | ✅ |
+| F5 | ใช้ `userId` แทน accountId/shopId/organizerId | ✅ |
 | F6 | สมัคร: `custom:role` + `clientMetadata` ตอน `confirmSignUp` | ✅ |
 | F7 | `fetchAuthSession({ forceRefresh: true })` หลังได้รับอนุมัติ | ✅ refresh เมื่อสถานะใน `/me` เปลี่ยน + โหลด `/me` ใหม่เมื่อได้แจ้งเตือนสถานะบัญชี (`NotificationWatcher`) |
 | F8 | หน้าโปรไฟล์ `GET/PUT /me` | ✅ |
 | F9 | หน้า Admin + ปุ่มยกเลิกระงับใช้ `unsuspend` | ✅ |
 | F10 | ฟอร์มงาน: ชื่อฟิลด์ใหม่, `startDate/endDate`, `slipDeadlineMinutes` | ✅ |
-| F11 | ตัดการจองรายวัน (`days`, `surcharge`, `lotState` รายวัน) | 🟨 หน้าดูงาน ตัววาดผัง และหน้าผู้จัดงานแล้ว · ลบ `MarketEvent` เฟส 8 |
+| F11 | ตัดการจองรายวัน (`days`, `surcharge`, `lotState` รายวัน) | ✅ ลบ `MarketEvent` และราคารายวันแล้ว (เฟส 8) |
 | F12 | `PUT /events/{id}/lots` หลังบันทึกผัง | ✅ |
 | F13 | เผยแพร่ด้วย `publishStatus: "OPEN"` / ปิดด้วย `/close` | ✅ |
 | F14 | รายการงานสาธารณะ / `GET /organizer/events` | ✅ |
@@ -311,7 +320,7 @@
 | F28 | VendorsPage ใช้ `GET /organizer/vendors` | ✅ |
 | F29 | โปรไฟล์ร้าน `line`, `bio`, `power` ผ่าน `GET/PUT /me` | ✅ |
 | F30 | แจ้งเตือน `account_unsuspended` | ✅ |
-| F31 | ยอดเงิน = ราคาโซน (ตัดค่าไฟ/ค่าธรรมเนียม) | ✅ ฝั่งผู้ขายครบ (`BookingSummary`, หน้าจอง) · ฟังก์ชันคิดค่าไฟ/ค่าธรรมเนียมใน `utils/pricing.ts` ยังใช้กับหน้าผู้จัดงานเดิม ลบเฟส 8 |
+| F31 | ยอดเงิน = ราคาโซน (ตัดค่าไฟ/ค่าธรรมเนียม) | ✅ ฟังก์ชันคิดค่าไฟ/ค่าธรรมเนียมใน `utils/pricing.ts` ลบแล้ว (เฟส 8) |
 | F32 | บัญชีรับเงินตั้งต้นในโปรไฟล์ผู้จัดงาน | ✅ |
 | F33 | หน้า Admin ผู้ใช้/สรุปจาก `GET /admin/users`, `GET /admin/events` | ⬜ |
 
@@ -321,6 +330,7 @@
 
 | วันที่ | เรื่อง |
 |---|---|
+| 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 8 เสร็จ: เอา store/ข้อมูลจำลองออกทั้งหมด (`AppProvider`, seed, `data/*` จำลอง, selectors, sha256) · ตัด type/ค่าตั้งค่าที่ไม่ใช้ · ล้าง key เดิมใน `localStorage` · build/lint ผ่าน |
 | 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 7 เสร็จ (โค้ด + build/lint + เปิดหน้าได้ ยังไม่ได้กดทดสอบ flow): หน้า Admin 3 หน้าใช้ API · กระดิ่ง poll `/notifications` · โหลด `/me` ใหม่เมื่อสถานะบัญชีเปลี่ยน · F7, F9, F18, F23, F30 ✅ |
 | 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 6 เสร็จ: ตรวจการจอง (อนุมัติ/ย้าย/ไม่อนุมัติ/ยกเลิก/อนุมัติหลายรายการ) ดูสลิปจริง เช็กอินหน้างาน ภาพรวมจาก `/summary` และสถิติร้านจาก `/organizer/vendors` · แก้เวลา UTC แสดงเพี้ยน · F15, F20, F24–F28 ✅ |
 | 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 5 เสร็จ: จองหลายล็อก → แนบสลิปไป S3 → รอตรวจ · การจองของฉัน/ยกเลิก/ดูสลิป · ร่างการจองย้ายไป `sessionStorage` · F17, F19, F21, F22, F31 ✅ |

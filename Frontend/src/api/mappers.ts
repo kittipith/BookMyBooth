@@ -1,6 +1,5 @@
 /**
- * แปลงค่าจาก backend (dto.ts) เป็น type เดิมใน types.ts ให้หน้าจอเดิมใช้ต่อได้ (F4, F5)
- * ส่วนที่หน้าจอยังใช้ข้อมูลจำลองอยู่จะเพิ่ม mapper ในเฟสที่สลับหน้านั้น (INTEGRATION-PLAN หัวข้อ 5)
+ * แปลงค่าจาก backend (dto.ts) เป็น type ใน types.ts ที่หน้าจอใช้ (F4, F5)
  */
 
 import { POWER_OPTIONS } from '../data/options'
@@ -162,20 +161,15 @@ export function vendorFromDto(dto: VendorStatDto): VendorStat {
 /**
  * โปรไฟล์จาก GET /me → Account เดิม
  * id ของผู้ใช้ใช้ userId ตัวเดียว (F5) จึงตั้ง shopId / organizerId เป็นค่าเดียวกัน
- * บัญชีจริงไม่มีรหัสผ่านในหน้าเว็บ passwordHash จึงว่าง และยืนยันอีเมลแล้วเสมอ (ยืนยันก่อนถึงจะมีโปรไฟล์)
  */
 export function accountFromDto(user: UserDto): Account {
   const role = roleFromDto(user.role)
   return {
     id: user.userId,
     email: user.email,
-    passwordHash: '',
     role,
     status: accountStatusFromDto(user.status),
-    emailVerified: true,
     statusReason: user.statusReason,
-    shopId: role === 'seller' ? user.userId : undefined,
-    organizerId: role === 'organizer' ? user.userId : undefined,
     displayName: user.displayName,
     createdAt: user.createdAt,
   }

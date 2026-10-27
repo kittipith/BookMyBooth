@@ -20,15 +20,6 @@ export interface Zone {
   amenities: string[]
 }
 
-export interface EventDayRecord {
-  date: string
-  surcharge: number
-}
-
-export interface EventDay extends EventDayRecord {
-  label: string
-}
-
 export interface Lot {
   code: string
   zone: string
@@ -38,38 +29,6 @@ export interface PaymentAccount {
   bank: string
   accountName: string
   accountNo: string
-}
-
-export interface EventRecord {
-  id: string
-  type: EventType
-  status: PublishStatus
-  title: string
-  round?: string
-  organizerId: string
-  venue: string
-  hours: string
-  description: string
-  bookingOpens: string
-  bookingCloses: string
-  payment: PaymentAccount
-  maxLotsPerSeller: number | null
-  autoApprove: boolean
-  days: EventDayRecord[]
-  zones: Zone[]
-  cols: number
-  rows: number
-  layout: CellType[]
-  disabledCells: number[]
-  lotSizes: Record<string, string>
-}
-
-export interface MarketEvent extends Omit<EventRecord, 'status' | 'days'> {
-  status: EventStatus
-  publishStatus: PublishStatus
-  organizer: string
-  days: EventDay[]
-  lotState: Record<string, Exclude<LotState, 'free'>>[]
 }
 
 /**
@@ -156,28 +115,6 @@ export interface LotMove {
   at: string
 }
 
-export interface Booking {
-  id: string
-  eventId: string
-  lot: string
-  days: number[]
-  shopId: string
-  shopName: string
-  category: string
-  staff: string
-  power: boolean
-  note: string
-  amount: number
-  slipAmount: number
-  slipName: string
-  submittedAt: string
-  status: BookingStatus
-  reason?: string
-  checkedIn?: boolean
-  moves?: LotMove[]
-  groupId?: string
-}
-
 export interface Shop {
   id: string
   name: string
@@ -189,28 +126,12 @@ export interface Shop {
   bio: string
 }
 
-export interface Organizer {
-  id: string
-  name: string
-  contactName: string
-  email: string
-  phone?: string
-  payment?: PaymentAccount
-}
-
 export interface ShopInfo {
   shopName: string
   category: string
   staff: string
   power: boolean
   note: string
-}
-
-export interface BookingDraft {
-  eventId: string
-  lots: string[]
-  days: number[]
-  shop?: ShopInfo
 }
 
 export interface ShopStats {
@@ -232,13 +153,9 @@ export type AccountStatus = 'active' | 'pending' | 'rejected' | 'suspended'
 export interface Account {
   id: string
   email: string
-  passwordHash: string
   role: Role
   status: AccountStatus
-  emailVerified: boolean
   statusReason?: string
-  shopId?: string
-  organizerId?: string
   displayName?: string
   createdAt: string
 }

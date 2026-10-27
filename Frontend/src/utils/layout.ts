@@ -1,5 +1,5 @@
 import { GRID_LIMITS } from '../data/settings'
-import type { CellType, Lot, MarketEvent, Zone } from '../types'
+import type { CellType, Lot, PublicEvent, Zone } from '../types'
 
 export const WALK = 'walk'
 export const STAGE = 'stage'
@@ -118,12 +118,12 @@ export function lotsOf(layout: CellType[], zones: Zone[]): Lot[] {
   return lots.sort((a, b) => order.indexOf(a.zone) - order.indexOf(b.zone))
 }
 
-export function eventLots(event: Pick<MarketEvent, 'layout' | 'zones'>) {
+export function eventLots(event: Pick<PublicEvent, 'layout' | 'zones'>) {
   return lotsOf(event.layout, event.zones)
 }
 
 /** ขนาดของล็อก: ใช้ขนาดเฉพาะล็อกถ้าผู้จัดงานตั้งไว้ ไม่งั้นใช้ขนาดของโซน */
-export function lotSize(event: Pick<MarketEvent, 'layout' | 'zones' | 'lotSizes'>, code: string) {
+export function lotSize(event: Pick<PublicEvent, 'layout' | 'zones' | 'lotSizes'>, code: string) {
   const i = lotCodes(event.layout).indexOf(code)
   const zone = event.zones.find((z) => z.id === event.layout[i])
   return event.lotSizes[String(i)] ?? zone?.size ?? ''

@@ -26,13 +26,11 @@ import EventsPage from './pages/user/EventPage'
 import HomePage from './pages/user/HomePage'
 import MyBookingsPage from './pages/user/MyBookingsPage'
 import ShopProfilePage from './pages/user/ShopProfilePage'
-import { AppProvider } from './store/AppProvider'
 import { AuthProvider } from './store/AuthProvider'
 
 function App() {
   return (
-    <AppProvider>
-      <AuthProvider>
+    <AuthProvider>
         <ToastProvider>
           <ApiErrorToaster />
           <NotificationWatcher />
@@ -97,8 +95,7 @@ function App() {
             </Routes>
           </BrowserRouter>
         </ToastProvider>
-      </AuthProvider>
-    </AppProvider>
+    </AuthProvider>
   )
 }
 

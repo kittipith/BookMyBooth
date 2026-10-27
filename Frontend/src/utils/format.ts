@@ -1,4 +1,4 @@
-import type { MarketEvent } from '../types'
+import type { PublicEvent } from '../types'
 
 const TH_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.']
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
@@ -97,7 +97,7 @@ export function baht(n: number) {
 }
 
 /** ชื่องานพร้อมรอบ ใช้ในหน้าผู้จัดงานที่มีหลายรอบชื่อเดียวกัน */
-export function fullTitle(event: Pick<MarketEvent, 'title' | 'round'>) {
+export function fullTitle(event: Pick<PublicEvent, 'title' | 'round'>) {
   return event.round ? `${event.title} ${event.round}` : event.title
 }
 

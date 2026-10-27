@@ -195,7 +195,8 @@ VITE_AUTH_MODE=dev
 - `NotificationBell` → `useQuery(['notifications'], { refetchInterval: 30_000 })` (`POLL_SECONDS` เดิม) · อ่านแล้ว `POST /notifications/read` · เพิ่ม type ใหม่ `booking_slip_uploaded`, `booking_expired`, `account_unsuspended` ใน `NotificationType` + ไอคอน · ใช้ `message` จาก backend
 - **เสร็จเมื่อ:** Admin อนุมัติผู้จัดงานใหม่ → ผู้จัดงานเห็นแจ้งเตือนภายใน 30 วินาที → refresh token แล้วเข้าเมนูผู้จัดงานได้
 
-### เฟส 8 — เก็บกวาด
+### เฟส 8 — เก็บกวาด ✅ (2026-10-28 · ยังไม่ได้ไล่ checklist หัวข้อ 6)
+> ทำแล้ว: ลบไฟล์ในข้อ 3.2 ทั้งหมด + `hooks/useAppStore.ts`, `services/profileBridge.ts` · ตัด type และค่าตั้งค่าที่ไม่ใช้ · `main.tsx` ล้าง key เดิมใน `localStorage` · build/lint ผ่าน
 - ลบไฟล์ในข้อ 3.2 และ `AppProvider` ออกจาก `main.tsx` · ลบ key `bookmybooth-data-v1` / `bookmybooth-session` ใน `localStorage`
 - `npm run build` + `npm run lint` ผ่าน, ไม่มี import จาก `data/*` ที่เป็นข้อมูลจำลองเหลือ
 - ไล่ checklist หัวข้อ 6 ครบกับ API จำลอง

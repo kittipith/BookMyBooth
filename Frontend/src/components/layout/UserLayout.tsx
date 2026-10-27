@@ -2,8 +2,8 @@ import { Link, Navigate, NavLink, Outlet, useNavigate } from 'react-router'
 import { SELLER_NAV } from '../../data/content'
 import { ROLE_HOME } from '../../data/options'
 import { SITE } from '../../data/settings'
-import { useAppStore, useSessionShop } from '../../hooks/useAppStore'
 import { useAuth } from '../../hooks/useAuth'
+import { useMyBookings } from '../../queries/bookings'
 import type { Account } from '../../types'
 import Logo from '../common/Logo'
 import AccountMenu from '../popup/AccountMenu'
@@ -14,10 +14,10 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
 
 export default function UserLayout() {
   const navigate = useNavigate()
-  const { bookings } = useAppStore()
   const { account, openLogin } = useAuth()
-  const shop = useSessionShop()
-  const pending = shop ? bookings.filter((b) => b.shopId === shop.id && b.status === 'pending').length : 0
+  const { data: myBookings = [] } = useMyBookings()
+  // รอแนบสลิป + รอผู้จัดงานตรวจ
+  const pending = myBookings.filter((b) => b.status === 'awaiting_slip' || b.status === 'pending').length
   const nav = SELLER_NAV.filter((item) => !item.role || item.role === account?.role)
   // ผู้จัดงานและผู้ดูแลระบบที่เข้าสู่ระบบจากหน้านี้ พาไปหน้าของตัวเองเลย
   const goToRoleHome = (a: Account) => a.role !== 'seller' && navigate(ROLE_HOME[a.role])

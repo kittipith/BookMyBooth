@@ -6,22 +6,12 @@ export const SITE = {
   supportEmail: 'help@bookmybooth.example',
 }
 
-export const FEES = {
-  /** ค่าธรรมเนียมระบบต่อการจอง */
-  service: 20,
-  /** ค่าไฟฟ้า 15A ต่อวัน */
-  power: 50,
-}
-
 export const POLICY = {
   /** คืนเงินภายในกี่วันทำการ เมื่อไม่อนุมัติหรือยกเลิก */
   refundBusinessDays: 3,
   /** ผู้จัดงานตรวจคำขอภายในกี่ชั่วโมง */
   reviewHours: 24,
 }
-
-/** ปรับราคาวันเสาร์อาทิตย์เริ่มต้น (เปอร์เซ็นต์) */
-export const WEEKEND_SURCHARGE = 20
 
 /** ค่าตั้งต้นของงานใหม่ */
 export const EVENT_DEFAULTS = {
@@ -38,8 +28,6 @@ export const LIMITS = {
   maxSlipMB: 5,
   /** ร้านที่มาตามนัดต่ำกว่านี้จะถูกเตือน */
   lowShowRate: 60,
-  /** จำนวนวันย้อนหลังในกราฟการจองรายวัน */
-  chartDays: 14,
   /** จำนวนคำขอในหน้าภาพรวม */
   overviewQueue: 4,
   /** จำนวนงานในหน้าแรก */
