@@ -33,7 +33,7 @@ Backend/
 ├── src/
 │   ├── requirements.txt         ← dependency ที่ขึ้น Lambda: python-ulid (pydantic มากับ Powertools layer แล้ว)
 │   ├── functions/
-│   │   ├── events/app.py        ← งาน ล็อก ภาพผัง สรุปงาน
+│   │   ├── events/app.py        ← งาน ผังกริด ล็อก สรุปงาน
 │   │   ├── bookings/app.py      ← จอง สลิป อนุมัติ ปฏิเสธ ยกเลิก
 │   │   ├── admin/app.py         ← อนุมัติผู้จัดงาน ระงับบัญชี
 │   │   ├── me/app.py            ← โปรไฟล์ และการแจ้งเตือน
@@ -42,14 +42,20 @@ Backend/
 │   ├── shared/
 │   │   ├── http.py              ← json response, แปลง Decimal, map AppError → HTTP status
 │   │   ├── auth.py              ← อ่าน claims, require_group(), ตรวจสถานะบัญชี
-│   │   ├── db.py                ← boto3 Table/client + ชื่อตารางจาก env
+│   │   ├── db.py                ← boto3 Table/client + ชื่อตารางจาก env, query_all/scan_all
+│   │   ├── cognito.py           ← cognito-idp client + USER_POOL_ID
+│   │   ├── clock.py             ← now() / iso() เวลา UTC (domain รับ `now` เป็นพารามิเตอร์)
+│   │   ├── ids.py               ← new_id() เป็น ULID
 │   │   ├── s3.py                ← presigned POST / GET
-│   │   ├── scheduler.py         ← สร้าง/ลบ schedule หมดเวลาจอง
+│   │   ├── scheduler.py         ← สร้าง/ลบ schedule หมดเวลาจอง (ชื่อ expire-<groupId>)
+│   │   ├── booking_ops.py       ← งานจองที่ใช้ DB ร่วมกันหลาย function: expire(), expire_stale_lots()
 │   │   ├── notify.py            ← เขียน Notification
 │   │   └── errors.py            ← AppError(code, status, message)
 │   └── domain/
 │       ├── booking.py           ← state machine + สร้าง TransactItems ของการจอง
-│       ├── lots.py              ← สร้างรหัสล็อกแบบช่วง เช่น A01–A20
+│       ├── events.py            ← publishStatus, คำนวณ status (SCHEDULED/OPEN/CLOSED/ENDED), view
+│       ├── lots.py              ← รหัสล็อกจากผังกริด, เทียบรายการล็อกเพื่อ sync (plan_sync), view
+│       ├── users.py             ← role/status, roleStatus, ฟิลด์ที่แก้ได้ต่อ role, สร้าง Users item
 │       ├── messages.py          ← ข้อความแจ้งเตือนภาษาไทย
 │       └── schemas.py           ← pydantic model ของ request body
 ├── scripts/
@@ -79,6 +85,8 @@ Backend/
 
 ## 3. Resource ที่ต้องสร้างใน AWS Console (สัปดาห์ 11)
 
+> คู่มือทีละขั้นแบบละเอียด (ปุ่มใน Console, routes ครบ 31 ตัว, smoke test, อาการที่เจอบ่อย, จุดในโค้ดที่เกี่ยวข้อง) อยู่ที่ [AWS-SETUP.md](../AWS-SETUP.md) ที่ root ของ repo ถ้าแก้หัวข้อนี้ต้องแก้ไฟล์นั้นด้วย
+
 ทุกอย่างอยู่ใน `us-east-1` ตั้งชื่อเป็น `bookmybooth-<stage>-<ชื่อ>` (`<stage>` = `dev` หรือ `prod`) สร้างตามลำดับด้านล่าง เพราะขั้นหลังต้องใช้ค่าจากขั้นก่อน
 
 ### 3.1 DynamoDB — 5 ตาราง
@@ -92,7 +100,7 @@ Backend/
 | `bookmybooth-<stage>-bookings` | `bookingId` | — | `bySeller`: `sellerId`, `createdAt` · `byEventStatus`: `eventId`, `statusCreatedAt` |
 | `bookmybooth-<stage>-notifications` | `userId` | `sk` | — · หลังสร้างให้เปิด **TTL** ที่ attribute `ttl` |
 
-### 3.2 S3 — bucket เก็บสลิปและภาพผัง
+### 3.2 S3 — bucket เก็บสลิป
 - ชื่อ `bookmybooth-<stage>-files-<account id>` (ชื่อ bucket ต้องไม่ซ้ำทั้งโลก)
 - **Block all public access** = เปิด, Object Ownership = *Bucket owner enforced*, Encryption = SSE-S3
 - Permissions → CORS:
@@ -182,7 +190,10 @@ Backend/
 | PK `userId` | Cognito `sub` |
 | GSI `byRoleStatus` | PK `roleStatus` เช่น `ORGANIZER#PENDING`, SK `createdAt` |
 
-ฟิลด์: `email`, `role` (SELLER/ORGANIZER/ADMIN), `status` (ACTIVE/PENDING/REJECTED/SUSPENDED), `statusReason`, `displayName`, `phone`, `shopName`, `category`, `orgName`, `createdAt`, `updatedAt`
+ฟิลด์: `email`, `username` (Cognito), `role` (SELLER/ORGANIZER/ADMIN), `status` (ACTIVE/PENDING/REJECTED/SUSPENDED), `statusReason`, `statusChangedBy`, `displayName`, `phone`, `shopName`, `category`, `orgName`, `createdAt`, `updatedAt`
+
+- ฟิลด์โปรไฟล์ที่แก้เองได้ (`PUT /me`): ผู้ขาย `displayName, phone, shopName, category, line, bio, power` (D5f) · ผู้จัดงาน `displayName, phone, orgName` · Admin `displayName, phone` (อยู่ใน `domain/users.py`)
+- `roleStatus` และ `username` ไม่ส่งออกไปหน้าเว็บ
 
 ### 4.2 Events
 | Key | ค่า |
@@ -191,7 +202,22 @@ Backend/
 | GSI `byOrganizer` | PK `organizerId`, SK `createdAt` |
 | GSI `byPublishStatus` | PK `publishStatus` (DRAFT/OPEN/CLOSED), SK `startDate` — ใช้กับ `GET /events` |
 
-ฟิลด์: `title`, `type`, `description`, `venue`, `hours`, `startDate`, `endDate`, `bookingOpensAt`, `bookingClosesAt`, `payment {bank, accountName, accountNo}`, `maxLotsPerSeller` (default 1), `slipDeadlineHours` (default 24), `floorPlanKey`, `zones [{id, name, size, price, amenities}]`
+ฟิลด์ที่ผู้จัดงานกรอก (ตรวจด้วย `EventInput` ใน `domain/schemas.py`):
+| ฟิลด์ | รูปแบบ |
+|---|---|
+| `title`, `round?`, `description`, `venue`, `hours` | ข้อความ (`round` คือรอบ/ครั้งที่ เช่น "ครั้งที่ 3") |
+| `type` | `ตลาดนัด` / `งานแฟร์` / `งานมหาวิทยาลัย` |
+| `startDate`, `endDate` | `YYYY-MM-DD` (วันตามเวลาไทย) |
+| `bookingOpensAt`, `bookingClosesAt` | ISO-8601 ที่มี timezone เก็บเป็น UTC `...Z` |
+| `payment` | `{bank, accountName, accountNo}` |
+| `maxLotsPerSeller` | 1–50 หรือ `null` = ไม่จำกัด (default 1) |
+| `slipDeadlineMinutes` | นาทีที่ให้อัปโหลดสลิปหลังจอง 2–10080 (default 1440 = 24 ชม.) ใช้นาทีเพื่อทดสอบหมดเวลาแบบสั้นได้ |
+| `zones` | `[{id, name, size, price, amenities}]` 1–20 โซน `id` เช่น `A` ไม่ซ้ำกัน `price` เป็นบาทจำนวนเต็ม |
+| `cols`, `rows`, `layout`, `disabledCells`, `lotSizes` | **ผังกริดจาก frontend เก็บตามที่ส่งมา** backend ไม่ใช้คำนวณ (D4) ตรวจแค่ `len(layout) = cols × rows` |
+
+ฟิลด์ที่ระบบตั้ง: `eventId`, `organizerId`, `organizerName` (ชื่อองค์กรตอนสร้างงาน), `publishStatus` (DRAFT/OPEN/CLOSED), `publishedAt`, `createdAt`, `updatedAt`
+
+ตอนส่งออกเพิ่ม `status` ที่คำนวณจากเวลา: `DRAFT` · `SCHEDULED` (ยังไม่ถึงเวลาเปิดจอง) · `OPEN` · `CLOSED` (ปิดเอง หรือเลยเวลาปิดจอง) · `ENDED` (เลยวันสุดท้ายของงาน)
 
 ### 4.3 Lots
 | Key | ค่า |
@@ -199,7 +225,11 @@ Backend/
 | PK `eventId` | |
 | SK `lotId` | รหัสล็อก เช่น `A01` |
 
-ฟิลด์: `zoneId`, `size`, `price`, `status` (AVAILABLE/HELD/BOOKED/DISABLED), `bookingId` (การจองที่ถือล็อกอยู่)
+ฟิลด์: `zoneId`, `size?` (ขนาดเฉพาะล็อก ถ้าไม่มีใช้ขนาดของโซน), `status` (AVAILABLE/HELD/BOOKED/DISABLED), `bookingId` (การจองที่ถือล็อกอยู่), `holdExpiresAt` (สำเนา `expiresAt` ของการจองที่ยังรอสลิป ใช้หาล็อกที่หมดเวลาในข้อ 7.6 ลบออกเมื่อแนบสลิป), `createdAt`, `updatedAt`
+
+- **ราคาไม่เก็บในล็อก** ใช้ `price` ของโซนเสมอ (แก้ราคาโซนแล้วล็อกตามทันที) ตอนจองค่อยคัดลอกราคาไปเก็บใน Booking `amount`
+- รหัสล็อกมาจากผังกริด: รหัสโซน + ลำดับ 2 หลักนับตามช่อง เช่น `A01`, `A02` (`domain/lots.lot_codes` ตรงกับ `lotCodes` ใน frontend)
+- **sync ล็อก** (`PUT /events/{id}/lots`): frontend ส่งรายการล็อกทั้งหมด `[{lotId, zoneId, size?, disabled?}]` backend เทียบกับของเดิมแล้วสร้าง/แก้/ลบ ล็อกที่ HELD/BOOKED ห้ามย้ายโซน เปลี่ยนขนาด ปิด หรือลบ (→ 409 `LOT_IN_USE` พร้อม `lotIds` และไม่เขียนอะไรเลย) การเขียนใช้ transaction ที่มี condition ว่าล็อกยังว่างอยู่ กันชนกับผู้ขายที่จองเข้ามาพร้อมกัน
 
 **Item โควตาในตารางเดียวกัน:** SK `QUOTA#<sellerId>` ฟิลด์ `count` ใช้จำกัดจำนวนล็อกต่อผู้ขายต่องาน (อยู่ partition เดียวกับล็อกจึงอยู่ใน transaction เดียวกันได้ง่าย) ตอน query ล็อกให้กรอง item ที่ขึ้นต้นด้วย `QUOTA#` ออก
 
@@ -210,7 +240,12 @@ Backend/
 | GSI `bySeller` | PK `sellerId`, SK `createdAt` |
 | GSI `byEventStatus` | PK `eventId`, SK `statusCreatedAt` เช่น `PENDING_REVIEW#2026-11-01T...` (กรองตามสถานะด้วย `begins_with`) |
 
-ฟิลด์: `eventId`, `lotId`, `sellerId`, `status`, `shopName`, `productDescription`, `amount`, `slipKey`, `slipUploadedAt`, `expiresAt`, `scheduleName`, `reason`, `moves [{from, to, at, by}]`, `decidedBy`, `decidedAt`, `createdAt`, `updatedAt`
+ฟิลด์: `groupId` (การจองที่ส่งมาพร้อมกัน), `eventId`, `eventTitle`, `organizerId` (คัดลอกจากงาน ใช้ตรวจสิทธิ์และแจ้งเตือน), `lotId`, `sellerId`, `status` (PENDING_PAYMENT/PENDING_REVIEW/APPROVED/REJECTED/CANCELLED/EXPIRED), `shopName`, `productDescription`, `amount` (ราคาโซนตอนจอง), `slipKey`, `slipUploadedAt`, `expiresAt`, `reason`, `moves [{from, to, at, by}]`, `decidedBy`, `decidedAt`, `createdAt`, `updatedAt`
+
+- ข้อมูลร้านเสริม (D5c, ไม่บังคับ): `category`, `staff` (ข้อความ เช่น "2 คน"), `power` (bool ต้องใช้ไฟ), `note`
+- เช็กอิน (D5b): `checkedIn`, `checkedInAt`, `checkedInBy`
+- ชื่อ schedule ไม่ต้องเก็บ ใช้ `expire-<groupId>` เสมอ
+- `statusCreatedAt` อัปเดตทุกครั้งที่เปลี่ยนสถานะ (ใช้ `createdAt` เดิม) และไม่ส่งออกไปหน้าเว็บ
 
 ### 4.5 Notifications
 | Key | ค่า |
@@ -225,12 +260,23 @@ Backend/
 ## 5. Cognito และการยืนยันตัวตน
 
 ### 5.1 สมัครสมาชิก
-1. หน้าเว็บเรียก `signUp` ของ `aws-amplify/auth` พร้อม `custom:role` = `seller` หรือ `organizer` และข้อมูลโปรไฟล์
-2. ผู้ใช้กรอก OTP จากอีเมล (`confirmSignUp`)
+โปรไฟล์ **เก็บใน DynamoDB (ตาราง Users) เท่านั้น** ไม่เพิ่ม attribute ใน Cognito (ตัดสินใจ 2026-10-27) Cognito มีแค่ `email` และ `custom:role`
+
+1. หน้าเว็บเรียก `signUp` ของ `aws-amplify/auth` พร้อม `custom:role` = `seller` หรือ `organizer`
+2. ผู้ใช้กรอก OTP จากอีเมล แล้วหน้าเว็บเรียก `confirmSignUp` โดยส่งโปรไฟล์จากฟอร์มสมัครไปใน **`options.clientMetadata`** (ค่าทุกตัวเป็น string ไม่ถูกเก็บใน Cognito ส่งผ่านไปถึง trigger อย่างเดียว):
+   ```ts
+   await confirmSignUp({ username: email, confirmationCode, options: {
+     clientMetadata: { name, phone, orgName, category } } })   // orgName = ชื่อร้าน (ผู้ขาย) หรือชื่อองค์กร (ผู้จัดงาน)
+   ```
+   หน้าเว็บควรเก็บค่าฟอร์มไว้ใน `sessionStorage` ระหว่างรอ OTP ถ้าหายไป (เช่น ปิดแท็บ) ผู้ใช้กรอกเพิ่มทีหลังได้ด้วย `PUT /me`
 3. Trigger **PostConfirmation** (`functions/post_confirmation/app.py`) ทำงาน
-   - สร้าง item ใน Users
-   - `seller` → `cognito_idp.admin_add_user_to_group(GroupName="Seller")` และ `status = ACTIVE`
+   - ทำเฉพาะ `triggerSource = PostConfirmation_ConfirmSignUp` (ยืนยันรีเซ็ตรหัสผ่านก็เรียก trigger นี้ ต้องข้าม)
+   - สร้าง item ใน Users ด้วย condition `attribute_not_exists(userId)` ถ้า Cognito เรียกซ้ำจะไม่สร้างซ้ำและไม่แจ้งเตือนซ้ำ
+   - ตรวจ clientMetadata ด้วย `SignupProfile` ถ้าไม่ถูกต้องให้ข้ามโปรไฟล์ (ไม่ทำให้ยืนยันอีเมลไม่ผ่าน) `orgName` เก็บเป็น `shopName` สำหรับผู้ขาย และ `orgName` สำหรับผู้จัดงาน
+   - `custom:role` ที่ไม่ใช่ `seller`/`organizer` (เช่น `admin`) ถือเป็นผู้ขาย สมัครเป็น Admin เองไม่ได้
+   - `seller` → `admin_add_user_to_group(GroupName="Seller")` (ทำทุกครั้ง เรียกซ้ำได้) และ `status = ACTIVE`
    - `organizer` → ไม่ใส่ group, `status = PENDING` และสร้าง Notification ให้ Admin ทุกคน (query Users `ADMIN#ACTIVE`)
+   - เก็บ `username` ของ Cognito (`event["userName"]`) ไว้ใน Users ให้ Admin API ใช้เรียก Cognito
    - ใช้ `event["userPoolId"]` จาก trigger event จึงไม่ต้องตั้ง env `USER_POOL_ID` ให้ function นี้
    - ต้อง `return event` กลับให้ Cognito เสมอ
 
@@ -239,15 +285,18 @@ Backend/
 - `shared/auth.py`
   - ไม่มี claims (route ไม่ได้ผูก authorizer) → 401 เสมอ
   - `get_user(app)` อ่าน `sub` และ `cognito:groups` (HTTP API ส่ง groups มาเป็น string เช่น `"[Seller]"` ต้อง parse เอง)
-  - `require_group("Organizer")` ถ้าไม่มี → 403
-  - โหลด Users item แล้วเช็ก `status == "ACTIVE"` เพื่อกันบัญชีที่ถูกระงับซึ่ง token ยังไม่หมดอายุ (ไม่เกิน 1 ชม.)
+  - `require_group(app, "Organizer")` ถ้าไม่มี group → 403 `FORBIDDEN` แล้วต้องเป็น `ACTIVE`
+  - `current_user(app, allow_inactive=True)` ใช้กับ `/me` ให้ผู้จัดงานที่ PENDING/REJECTED ดูและแก้โปรไฟล์ได้
+  - โหลด Users item ทุก request: ไม่พบ → 403 `ACCOUNT_NOT_FOUND`, `SUSPENDED` → 403 `ACCOUNT_SUSPENDED` เสมอ (กัน token ที่ยังไม่หมดอายุ ไม่เกิน 1 ชม.), ไม่ ACTIVE → 403 `ACCOUNT_NOT_ACTIVE`
 - ตรวจความเป็นเจ้าของ: ผู้จัดงาน → `event["organizerId"] == sub`, ผู้ขาย → `booking["sellerId"] == sub`
 
 ### 5.3 หลัง Admin อนุมัติผู้จัดงาน
 - token เดิมยังไม่มี group `Organizer` หน้าเว็บต้องเรียก `fetchAuthSession({ forceRefresh: true })` (หรือให้ล็อกอินใหม่) หลังได้รับแจ้งเตือน
 
 ### 5.4 บัญชี Admin
-- สร้างด้วย `scripts/seed.py` (`admin_create_user` + `admin_set_user_password(Permanent=True)` + ใส่ group `Admin`) รหัสผ่านอ่านจาก env ไม่เขียนลงไฟล์
+- สร้างด้วย `scripts/seed.py` (`admin_create_user` + `admin_set_user_password(Permanent=True)` + ใส่ group `Admin`) รหัสผ่านอ่านจาก env `SEED_PASSWORD` ไม่เขียนลงไฟล์
+- สคริปต์สร้างบัญชีเดโม 3 บัญชี (`admin@`, `organizer@`, `seller@bookmybooth.test`) เป็น ACTIVE ทั้งหมด และเขียน Users เอง (trigger ไม่ทำงานกับ `admin_create_user`) รันซ้ำได้
+- รัน: `SEED_PASSWORD='...' python scripts/seed.py --user-pool-id <id> --stage dev`
 
 ---
 
@@ -272,23 +321,26 @@ def lambda_handler(event, context):
 
 | Function | Route | สิทธิ์ |
 |---|---|---|
-| **events** | `GET /health` (ไว้ตรวจหลัง deploy) · `GET /events` · `GET /events/{id}` · `GET /events/{id}/lots` | สาธารณะ (ไม่มี authorizer) |
-| | `POST /events` · `PUT /events/{id}` · `POST /events/{id}/close` | Organizer (เจ้าของ) |
-| | `POST /events/{id}/floorplan-url` · `GET /events/{id}/floorplan` | Organizer / สาธารณะ |
-| | `POST /events/{id}/lots` (รับช่วง เช่น `{zoneId, prefix:"A", from:1, to:20}`) · `PUT /events/{id}/lots/{lotId}` | Organizer (เจ้าของ) |
-| | `GET /events/{id}/summary` | Organizer (เจ้าของ) |
+| **events** | `GET /health` (ไว้ตรวจหลัง deploy) · `GET /events?status=OPEN\|CLOSED` · `GET /events/{id}` · `GET /events/{id}/lots` (งาน DRAFT → 404) | สาธารณะ (ไม่มี authorizer) |
+| | `GET /organizer/events` (งานของตัวเองทุกสถานะ รวมผังกริด ใหม่สุดก่อน) | Organizer |
+| | `POST /events` (สร้างเป็น DRAFT) · `PUT /events/{id}` (แก้บางฟิลด์ ส่ง `publishStatus:"OPEN"` เพื่อเผยแพร่ ต้องมีล็อกแล้ว) · `POST /events/{id}/close` (OPEN → CLOSED) | Organizer (เจ้าของ) |
+| | `PUT /events/{id}/lots` (`{lots:[{lotId, zoneId, size?, disabled?}]}` sync ทั้งชุด) | Organizer (เจ้าของ) |
+| | `GET /events/{id}/summary` (จำนวนล็อกตามสถานะ, จำนวนการจองตามสถานะ, รายได้จากการจองที่อนุมัติ) | Organizer (เจ้าของ) |
 | **bookings** | `POST /bookings` · `GET /bookings/me` | Seller |
 | | `POST /bookings/{id}/slip-url` · `POST /bookings/{id}/slip` | Seller (เจ้าของ) |
 | | `GET /bookings/{id}/slip` (คืน presigned GET อายุ 5 นาที) | เจ้าของการจอง / ผู้จัดงานของงาน |
 | | `POST /bookings/{id}/cancel` | Seller (ก่อนอนุมัติ) / Organizer (หลังอนุมัติ ต้องมีเหตุผล) |
-| | `GET /events/{id}/bookings?status=` · `POST /bookings/{id}/approve` · `POST /bookings/{id}/reject` | Organizer (เจ้าของงาน) |
-| **admin** | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST /admin/organizers/{userId}/reject` · `POST /admin/users/{userId}/suspend` · `GET /admin/events` | Admin |
+| | `GET /events/{id}/bookings?status=` · `POST /bookings/{id}/approve` · `POST /bookings/{id}/reject` · `POST /bookings/{id}/check-in` | Organizer (เจ้าของงาน) |
+| | `GET /organizer/vendors` (สถิติร้านในงานของตัวเอง) | Organizer |
+| **admin** | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST /admin/organizers/{userId}/reject` · `POST /admin/users/{userId}/suspend` · `POST /admin/users/{userId}/unsuspend` · `GET /admin/events` | Admin |
 | **me** | `GET /me` · `PUT /me` | ทุกบทบาท |
 | | `GET /notifications` (คืนรายการ + `unreadCount`) · `POST /notifications/read` (`{ids}` หรือ `{all:true}`) | ทุกบทบาท |
 | **post_confirmation** | Cognito trigger | — |
 | **expire_booking** | EventBridge Scheduler | — |
 
-> เพิ่มจาก scope: `GET/PUT /me` (แก้โปรไฟล์ตามหัวข้อ 3.1), `GET /bookings/{id}/slip` (ดูสลิป), `floorplan-url` (อัปโหลดภาพผัง), `POST /events/{id}/close`, `GET /admin/events`
+> เพิ่มจาก scope: `GET/PUT /me` (แก้โปรไฟล์ตามหัวข้อ 3.1), `GET /bookings/{id}/slip` (ดูสลิป), `POST /events/{id}/close`, `GET /admin/events`, `GET /organizer/events` · ตามข้อ 14 (D5): `POST /bookings/{id}/check-in`, `GET /organizer/vendors`, `POST /admin/users/{userId}/unsuspend` (เพิ่ม 2026-10-27 ต้องสร้าง route ใน Console ด้วย)
+>
+> ตัดออก (D4 ใช้ผังกริดแทนรูปผัง 2026-10-27): `POST /events/{id}/floorplan-url`, `GET /events/{id}/floorplan`, การสร้างล็อกแบบช่วง และ `PUT /events/{id}/lots/{lotId}` (ใช้ sync ทั้งชุดแทน)
 >
 > route `GET /events/{id}/bookings` อยู่ใน function **bookings** ไม่ใช่ events ต้องผูก route นี้ให้ถูก function ใน API Gateway Console (ข้อ 3.5)
 
@@ -310,38 +362,47 @@ def lambda_handler(event, context):
 ### 7.1 ส่งคำขอจอง `POST /bookings`
 Body: `{ eventId, lotIds: ["A01", "A02"], shopName, productDescription }` จองได้หลายล็อกในคำขอเดียวแบบ **all-or-nothing** (D2) แต่ละล็อกได้ Booking ของตัวเอง ผูกกันด้วย `groupId` (ULID เดียวกันทั้งชุด) จองแบบ **ทั้งงาน** ไม่แยกรายวัน (D1)
 
-ตรวจก่อน: งาน `OPEN` และเวลาปัจจุบันอยู่ระหว่าง `bookingOpensAt`–`bookingClosesAt`, บัญชี ACTIVE, `lotIds` ไม่ซ้ำกัน และ `1 ≤ len(lotIds) ≤ maxLotsPerSeller`
+ตรวจก่อน (ตามลำดับ):
+- Seller ที่ ACTIVE · งานไม่ใช่ DRAFT และ `status` เป็น `OPEN` (ไม่งั้น `409 BOOKING_CLOSED`)
+- `lotIds` 1–20 ล็อก ไม่ซ้ำ (จำกัด 20 ให้ transaction 2N + 1 ไม่เกิน 100 item) · มากกว่า `maxLotsPerSeller` → `409 QUOTA_EXCEEDED`
+- ทุกล็อกต้องมีในงาน (ไม่งั้น `400 UNKNOWN_LOT`) · เรียก fallback ข้อ 7.6 กับล็อกที่ขอ แล้วถ้ายังมีล็อกไม่ว่าง → `409 LOT_NOT_AVAILABLE` พร้อม `lotIds`
 
-`TransactItems` (N = จำนวนล็อก รวม 2N + 1 item):
-1. **Update Lot** × N `status → HELD`, `bookingId = :id` — condition `#status = :available`
-2. **Put Booking** × N `status = PENDING_PAYMENT`, `groupId`, `amount` = ราคาของล็อกนั้น, `expiresAt = now + slipDeadlineHours` — condition `attribute_not_exists(bookingId)`
-3. **Update Quota** `QUOTA#<sellerId>` `count + N` — condition `attribute_not_exists(#count) OR #count <= :maxMinusN` (`:maxMinusN = maxLotsPerSeller − N`)
+`TransactItems` (`domain/booking.create_items`, N = จำนวนล็อก รวม 2N + 1 item):
+1. **Update Lot** × N `status → HELD`, `bookingId = :id`, `holdExpiresAt = expiresAt` — condition `#status = :available`
+2. **Put Booking** × N `status = PENDING_PAYMENT`, `groupId`, `amount` = ราคาโซนของล็อกนั้น ณ ตอนจอง, `expiresAt = now + slipDeadlineMinutes` — condition `attribute_not_exists(bookingId)`
+3. **Update Quota** `QUOTA#<sellerId>` `ADD count N` — condition `attribute_not_exists(#count) OR #count <= :limit` (`:limit = maxLotsPerSeller − N`, ไม่ใส่ condition ถ้า `maxLotsPerSeller = null`)
 
-ล็อกใดล็อกหนึ่งไม่ว่าง → ทั้ง transaction ล้ม คืน `409 LOT_NOT_AVAILABLE` พร้อม `lotIds` ที่ไม่ว่าง (ดูจากตำแหน่งใน `CancellationReasons`)
+transaction ล้ม → ดูตำแหน่งใน `CancellationReasons`: ตำแหน่ง 0..N−1 = ล็อกนั้นถูกจองไปพร้อมกัน → `409 LOT_NOT_AVAILABLE` `{lotIds}` · ตำแหน่ง 2N = โควตาเต็ม (รวมที่จองไว้ก่อน) → `409 QUOTA_EXCEEDED`
 
 Response `201`: `{ groupId, bookings: [...] }`
 
 หลังจากนั้นแต่ละ Booking เดินสถานะของตัวเอง (อนุมัติ ย้าย ปฏิเสธ ยกเลิก ทีละล็อก และโควตา −1 ต่อล็อก) `groupId` ใช้แค่จัดกลุ่มแสดงผล
 
 หลัง transaction สำเร็จ:
-- สร้าง schedule `expire-<groupId>` ชุดละ 1 ตัว ด้วย `scheduler.create_schedule(ScheduleExpression="at(yyyy-mm-ddThh:mm:ss)", Target={Arn: expire_booking, RoleArn: LabRole, Input: {"bookingIds": [...]}}, ActionAfterCompletion="DELETE", FlexibleTimeWindow={"Mode": "OFF"})` แล้ว expire_booking วนรัน transaction หมดเวลาทีละ Booking
-- แจ้งเตือนผู้จัดงาน "มีคำขอจองใหม่"
+- สร้าง schedule `expire-<groupId>` ชุดละ 1 ตัว ด้วย `scheduler.create_schedule(ScheduleExpression="at(yyyy-mm-ddThh:mm:ss)", ScheduleExpressionTimezone="UTC", Target={Arn: EXPIRE_FUNCTION_ARN, RoleArn: SCHEDULER_ROLE_ARN, Input: {"bookingIds": [...]}}, ActionAfterCompletion="DELETE", FlexibleTimeWindow={"Mode": "OFF"})` แล้ว expire_booking วนรัน transaction หมดเวลาทีละ Booking
+- แจ้งเตือนผู้จัดงาน `booking_new` (ข้อความเดียวต่อชุด ระบุทุกล็อก)
 - ถ้าสร้าง schedule ไม่สำเร็จ ให้ log error แต่ไม่ล้มคำขอ (มี fallback ในข้อ 7.6)
 
-### 7.2 อัปโหลดสลิป
-1. `POST /bookings/{id}/slip-url` → `s3.generate_presigned_post` (ไม่ใช่ PUT) เพราะกำหนด `["content-length-range", 1, 5242880]` และ `Content-Type` (jpg/png/pdf) ได้ คีย์ `slips/<eventId>/<bookingId>/<ulid>.<ext>` อายุ 5 นาที
-2. หน้าเว็บอัปโหลดตรงไป S3 ด้วย `FormData`
-3. `POST /bookings/{id}/slip` `{key}` → `head_object` ตรวจว่ามีไฟล์จริงและ key ขึ้นต้นด้วย prefix ของ booking นี้ แล้ว update Booking `status → PENDING_REVIEW` condition `#status = :pending_payment AND expiresAt > :now`
-4. ลบ schedule หมดเวลา (ถ้าลบไม่ได้ก็ไม่เป็นไร เพราะ expire_booking มี condition กันอยู่) และแจ้งเตือนผู้จัดงาน
+### 7.2 อัปโหลดสลิป — สลิปเดียวต่อชุด (D3 ตัดสิน 2026-10-27)
+ผู้ขายโอนยอดรวมครั้งเดียว สลิปที่แนบผ่าน booking ใดก็ได้ในชุดจะติดให้ **ทุก booking ในชุดที่ยัง PENDING_PAYMENT**
+1. `POST /bookings/{id}/slip-url` `{contentType}` (`image/jpeg` / `image/png` / `application/pdf`) → `s3.generate_presigned_post` (ไม่ใช่ PUT) เพราะกำหนด `["content-length-range", 1, 5242880]` และ `Content-Type` ได้ คีย์ `slips/<eventId>/<groupId>/<ulid>.<ext>` อายุ 5 นาที → `{url, fields, key}` · ถ้าหมดเวลาแล้วจะเปลี่ยนเป็น EXPIRED และคืน `409 BOOKING_EXPIRED`
+2. หน้าเว็บอัปโหลดตรงไป S3 ด้วย `FormData` (ใส่ทุกค่าใน `fields` ก่อน แล้วใส่ `file` เป็นช่องสุดท้าย)
+3. `POST /bookings/{id}/slip` `{key}` → ตรวจ key ขึ้นต้นด้วย `slips/<eventId>/<groupId>/` (`400 INVALID_SLIP_KEY`), `head_object` ว่ามีไฟล์จริงและไม่เกิน 5 MB (`400 SLIP_NOT_UPLOADED` / `SLIP_TOO_LARGE`) แล้ว transaction เดียว (`domain/booking.slip_items`): ทุก booking ในชุด `PENDING_PAYMENT → PENDING_REVIEW` condition `#status = :payment AND expiresAt > :now` + ล็อก `REMOVE holdExpiresAt` condition `bookingId = :id`
+4. ลบ schedule `expire-<groupId>` (ลบไม่ได้ก็ไม่เป็นไร เพราะ expire_booking มี condition กันอยู่) และแจ้งเตือนผู้จัดงาน `booking_slip_uploaded`
+5. ดูสลิป `GET /bookings/{id}/slip` → `{url}` presigned GET อายุ 5 นาที ให้เจ้าของการจอง หรือผู้จัดงาน (`organizerId`) เท่านั้น
 
-### 7.3 อนุมัติ `POST /bookings/{id}/approve`
-- ไม่ย้ายล็อก: Booking `PENDING_REVIEW → APPROVED` + Lot `HELD → BOOKED` (condition `bookingId = :id`)
-- ย้ายล็อก (`newLotId`):
-  1. Booking `→ APPROVED`, `lotId = newLotId`, append `moves` ด้วย `list_append`
-  2. ล็อกเดิม `HELD → AVAILABLE`, `REMOVE bookingId` — condition `bookingId = :id`
-  3. ล็อกใหม่ `AVAILABLE → BOOKED` — condition `#status = :available`
-  4. `amount` ใช้ราคาเดิมที่ผู้ขายโอนมา (ไม่คิดส่วนต่าง)
-- แจ้งเตือนผู้ขาย (approved / moved)
+### 7.3 อนุมัติ `POST /bookings/{id}/approve` `{ newLotId? }`
+ต้องเป็นผู้จัดงานของงานนั้น (`booking.organizerId`) และ Booking ต้อง `PENDING_REVIEW` (ยังไม่แนบสลิป → `409 INVALID_STATUS`) TransactItems อยู่ใน `domain/booking.approve_items`
+- ไม่ย้ายล็อก (ไม่ส่ง `newLotId` หรือส่งล็อกเดิม): Booking `PENDING_REVIEW → APPROVED` + `decidedBy`, `decidedAt` · Lot `HELD → BOOKED` (condition `bookingId = :id`)
+- ย้ายล็อก (`newLotId` ในงานเดียวกัน): ไม่พบล็อก → `400 UNKNOWN_LOT` · เรียก fallback 7.6 กับล็อกปลายทาง แล้วถ้ายังไม่ว่าง → `409 LOT_NOT_AVAILABLE`
+  1. Booking `→ APPROVED`, `lotId = newLotId`, append `moves` `{from, to, at, by}` ด้วย `list_append(if_not_exists(moves, []), ...)` — condition `#status = :review`
+  2. ล็อกเดิม `HELD → AVAILABLE`, `REMOVE bookingId, holdExpiresAt` — condition `bookingId = :id`
+  3. ล็อกใหม่ `AVAILABLE → BOOKED`, `bookingId = :id` — condition `#status = :available`
+  4. `amount` ใช้ราคาเดิมที่ผู้ขายโอนมา (ไม่คิดส่วนต่าง) โควตาไม่เปลี่ยน
+- แจ้งเตือนผู้ขาย `booking_approved` หรือ `booking_moved`
+
+### 7.3.1 รายการการจองของงาน `GET /events/{id}/bookings?status=`
+ผู้จัดงานเจ้าของงาน · query GSI `byEventStatus` (`begins_with(statusCreatedAt, "<STATUS>#")` เมื่อระบุ status) · Booking ที่เลยเวลาแล้วเปลี่ยนเป็น EXPIRED ก่อนตอบ · เรียงใหม่สุดก่อน → `{ items }`
 
 ### 7.4 ปฏิเสธ / ยกเลิก
 | การกระทำ | สถานะต้นทาง | Booking | Lot | Quota |
@@ -351,13 +412,29 @@ Response `201`: `{ groupId, bookings: [...] }`
 | ผู้จัดงานยกเลิก (ต้องมีเหตุผล) | APPROVED | → CANCELLED | BOOKED → AVAILABLE | −1 |
 | หมดเวลา (ระบบ) | PENDING_PAYMENT | → EXPIRED | HELD → AVAILABLE | −1 |
 
-ทุกแถวเป็น transaction เดียว โดย condition ที่ Booking คือสถานะต้นทาง และที่ Lot คือ `bookingId = :id`
+ทุกแถวเป็น transaction เดียว (`domain/booking.release_items`) โดย condition ที่ Booking คือสถานะต้นทาง (หมดเวลาเพิ่ม `expiresAt <= :now`) และที่ Lot คือ `bookingId = :id` ล็อกถูก `REMOVE bookingId, holdExpiresAt` · ยกเลิกทำทีละ booking ไม่ใช่ทั้งชุด
+
+- ปฏิเสธ `POST /bookings/{id}/reject` `{reason}` (บังคับ) เก็บ `reason`, `decidedBy`, `decidedAt` แจ้งเตือนผู้ขาย `booking_rejected`
+- ยกเลิก `POST /bookings/{id}/cancel` route เดียวใช้ทั้งสองฝ่าย ดูจากผู้เรียก: เจ้าของการจอง (Seller) → ยกเลิกก่อนอนุมัติ ไม่ต้องมีเหตุผล แจ้งเตือนผู้จัดงาน · ผู้จัดงานของงาน (Organizer) → ยกเลิกได้เฉพาะ APPROVED ต้องมี `{reason}` แจ้งเตือนผู้ขาย (`booking_cancelled` ทั้งสองแบบ ข้อความต่างกัน) · การจองที่รอตรวจให้ผู้จัดงานใช้ปฏิเสธแทน (`409 INVALID_STATUS`)
 
 ### 7.5 expire_booking
-รับ `{"bookingIds": [...]}` จาก Scheduler แล้วรัน transaction "หมดเวลา" ด้านบนทีละ Booking ถ้า condition ล้มเหลว (ผู้ขายอัปโหลดสลิปหรือยกเลิกไปแล้ว) ให้จบเงียบ ๆ ถ้าสำเร็จแจ้งเตือนผู้ขาย
+- รับ `{"bookingIds": [...]}` จาก Scheduler แล้วรัน transaction "หมดเวลา" ด้านบนทีละ Booking ถ้า condition ล้มเหลว (ผู้ขายอัปโหลดสลิปหรือยกเลิกไปแล้ว หรือยังไม่ถึงเวลา) ให้จบเงียบ ๆ ถ้าสำเร็จแจ้งเตือนผู้ขาย `booking_expired` คืน `{"expired": [...]}`
+- **โหมดกวาด:** ถ้า input ไม่มี `bookingIds` จะ scan หา Booking `PENDING_PAYMENT` ที่ `expiresAt <= now` ทั้งหมด ใช้กับ schedule `rate(5 minutes)` ได้เลยโดยไม่ต้องแก้โค้ด ถ้าสัปดาห์ 11 พบว่า Lambda สร้าง schedule เองไม่ได้ (ข้อ 13)
+
+### 7.7 เช็กอิน `POST /bookings/{id}/check-in` (D5b)
+- QR ในตั๋วของผู้ขาย = `bookingId` ผู้จัดงานสแกนแล้วเรียก route นี้
+- ต้องเป็นผู้จัดงานของงาน, Booking `APPROVED` และวันนี้ (เวลาไทย) อยู่ระหว่าง `startDate`–`endDate` (ไม่งั้น `409 NOT_EVENT_DAY`)
+- SET `checkedIn = true`, `checkedInAt`, `checkedInBy` condition `#status = :approved AND attribute_not_exists(checkedInAt)` · เช็กอินแล้วเรียกซ้ำคืนผลเดิม (ไม่เปลี่ยนเวลา)
+
+### 7.8 สถิติร้าน `GET /organizer/vendors` (D5e)
+- รวม Booking `APPROVED` ทุกงานของผู้จัดคนนั้น จัดกลุ่มตาม `sellerId` → `{ items: [{ shop: <โปรไฟล์ผู้ขาย>, approved, total, pastCount, showRate, flagged }] }` เรียงตาม `approved` มากสุดก่อน
+- คำนวณแบบเดียวกับ `shopStats`/`vendorStats` ใน frontend (`domain/vendors.py`): `pastCount` = การจองในงานที่ `ENDED` แล้ว · `showRate` = % ที่เช็กอินในงานที่จบแล้ว (`null` ถ้ายังไม่มี) · `flagged` = `pastCount ≥ 2` และ `showRate < 60`
 
 ### 7.6 Fallback กรณี schedule ไม่ทำงาน
-`GET /events/{id}/lots` และ `POST /bookings` ถือว่าล็อก HELD ที่ Booking เป็น `PENDING_PAYMENT` และเลย `expiresAt` แล้วเป็นล็อกว่าง โดยเรียก transaction หมดเวลาก่อนทำงานต่อ
+`shared/booking_ops.expire_stale_lots`: ล็อก `HELD` ที่ `holdExpiresAt <= now` → โหลด Booking แล้วรัน transaction หมดเวลา จากนั้นถือว่าล็อกว่าง ใช้ใน
+- `GET /events/{id}/lots` ก่อนส่งสถานะล็อก
+- `POST /bookings` กับล็อกที่ขอจอง
+- `GET /bookings/me` และ `slip-url` / `slip` ก็ตรวจ Booking ที่เลยเวลาแล้วเปลี่ยนเป็น EXPIRED ก่อนตอบ
 
 ---
 
@@ -374,13 +451,26 @@ Response `201`: `{ groupId, bookings: [...] }`
 
 เขียน notification **หลัง** transaction หลักสำเร็จ (ไม่อยู่ใน transaction เดียวกัน) ถ้าเขียนไม่สำเร็จแค่ log ไว้ หน้าเว็บ poll `GET /notifications` ทุก 30–60 วินาที
 
+`type` ที่ทำแล้ว: `booking_new`, `booking_slip_uploaded` (ใหม่), `booking_approved`, `booking_moved`, `booking_rejected`, `booking_cancelled`, `booking_expired` (ใหม่), `organizer_pending`, `organizer_approved`, `organizer_rejected`, `account_suspended`, `account_unsuspended` (ใหม่) · ข้อความ `booking_new` เปลี่ยนเป็น "…รอผู้ขายแนบสลิป" เพราะ D3 แนบสลิปทีหลัง (frontend เดิมเขียนว่า "พร้อมแนบสลิปแล้ว") · `booking_approved` ไม่มี "ดู QR เช็กอินได้เลย" (frontend แสดงปุ่ม QR เองจากสถานะ APPROVED)
+
+**API (สัปดาห์ 10, function `me`)** ทุกบทบาทรวมผู้จัดงานที่ PENDING/REJECTED (บัญชีที่ถูกระงับเรียกไม่ได้)
+- `GET /notifications` → `{ items: [{ id, type, message, read, createdAt, link?, bookingId?, eventId? }], unreadCount }` ใหม่สุดก่อน 50 รายการ `unreadCount` นับทั้งหมด
+- `POST /notifications/read` `{ ids: [...] }` (≤ 100) หรือ `{ all: true }` → `{ updated, unreadCount }` แก้ได้เฉพาะของตัวเอง
+- ทุก notification มี `ttl` = 90 วัน (เปิด TTL ที่ตารางใน Console ข้อ 3.1)
+
 ---
 
 ## 9. Admin
 
-- **อนุมัติผู้จัดงาน**: `admin_add_user_to_group(GroupName="Organizer")` แล้ว Users `PENDING → ACTIVE` (condition `#status = :pending`) แจ้งเตือนผู้ใช้
-- **ปฏิเสธ**: Users `→ REJECTED` + `statusReason` แจ้งเตือน (บัญชียังล็อกอินได้แต่เข้าเมนูผู้จัดงานไม่ได้)
-- **ระงับ**: `admin_disable_user` + `admin_user_global_sign_out` แล้ว Users `→ SUSPENDED` (middleware ในข้อ 5.2 กัน token ที่ยังไม่หมดอายุ)
+ทุกการเปลี่ยนสถานะอัปเดต `status`, `roleStatus`, `statusChangedBy`, `updatedAt` พร้อม condition ถ้าสถานะเปลี่ยนไปแล้ว → 409 `INVALID_STATUS` · ทุก response คืนโปรไฟล์ล่าสุดของผู้ใช้คนนั้น
+
+- **รายชื่อ**: `GET /admin/organizers?status=PENDING` (ค่าเริ่มต้น PENDING) → `{ items: [...] }` เรียงตาม `createdAt`
+- **อนุมัติผู้จัดงาน**: ต้องเป็น ORGANIZER ที่ PENDING (ไม่ใช่ → 404 / 409) → `admin_add_user_to_group(GroupName="Organizer")` **ก่อน** (เรียกซ้ำได้ ถ้าขั้นต่อไปล้มก็กดอนุมัติซ้ำได้) แล้ว Users `PENDING → ACTIVE` แจ้งเตือนผู้ใช้
+- **ปฏิเสธ**: body `{ reason }` (บังคับ) Users `PENDING → REJECTED` + `statusReason` แจ้งเตือน (บัญชียังล็อกอินได้แต่เข้าเมนูผู้จัดงานไม่ได้)
+- **ระงับ**: body `{ reason }` ระงับ Admin ไม่ได้ (409) Users `→ SUSPENDED` **ก่อน** (ข้อ 5.2 กันทุก request ทันที) แล้วค่อย `admin_disable_user` + `admin_user_global_sign_out` ถ้า Cognito ล้มแค่ log ไว้
+- **ยกเลิกการระงับ** (D5d): `POST /admin/users/{userId}/unsuspend` ต้อง SUSPENDED อยู่ (ไม่งั้น 409) → `admin_enable_user` + ใส่ group ตาม role **ก่อน** (เรียกซ้ำได้) แล้ว Users `SUSPENDED → ACTIVE` ล้าง `statusReason` แจ้งเตือน `account_unsuspended` · ผู้จัดงานที่ถูกระงับตอนยังรออนุมัติจะกลายเป็น ACTIVE (ถือว่าอนุมัติไปด้วย ตรงกับ frontend)
+- **งานทั้งหมด**: `GET /admin/events` scan ตาราง Events เรียงใหม่สุดก่อน
+- เรียก Cognito ด้วย `username` ที่เก็บใน Users (ไม่มีก็ใช้ `userId`) และ `USER_POOL_ID` จาก env (ข้อ 3.4)
 
 ---
 
@@ -402,7 +492,7 @@ Response `201`: `{ groupId, bookings: [...] }`
 | Integration test ด้วย `requests` กับ resource ชุด `dev` | flow ครบผ่าน API Gateway + JWT จริง และตรวจว่าตั้งค่าใน Console ตรงกับโค้ด (ชื่อตาราง, env, route, authorizer) |
 | `scripts/race_test.py` ยิง `POST /bookings` ล็อกเดียวกันพร้อมกัน **5 request** | ความพร้อมกันจริงของ DynamoDB ต้องได้ `201` × 1, `409` × 4 |
 | Lambda เรียก `scheduler.create_schedule` ด้วย LabRole | ต้องใช้ `iam:PassRole` ยังไม่เคยทดสอบ (ข้อ 13) |
-| หมดเวลาจริงด้วย `slipDeadlineHours` สั้น (เช่น 2 นาที) | Scheduler ยิงจริงแล้ว Booking เป็น EXPIRED |
+| หมดเวลาจริงด้วย `slipDeadlineMinutes` สั้น (เช่น 2 นาที) | Scheduler ยิงจริงแล้ว Booking เป็น EXPIRED |
 | PostConfirmation trigger และรูปแบบ `cognito:groups` ใน claims | moto ไม่เรียก trigger และรูปแบบ claims ของ HTTP API ต้องดูของจริง |
 | อัปโหลดสลิปจากเบราว์เซอร์ตรงไป S3 | CORS ของ bucket |
 
@@ -451,11 +541,11 @@ ruff check . && ruff format --check .
 | สัปดาห์ | ช่วง | งาน backend | ผู้รับผิดชอบหลัก |
 |---|---|---|---|
 | 1–2 | โค้ด | ตั้งโปรเจกต์ Python + pytest/moto, `tests/tables.py`, `shared/`, `scripts/build_zip.py` ✅ · spike ใน Lab ✅ | กิตติพิชญ์ |
-| 3–4 | โค้ด | post_confirmation, `shared/auth.py`, `/me`, Admin API, `scripts/seed.py` (เขียนไว้ก่อน รันจริงสัปดาห์ 11) | กิตติพิชญ์, สรวิชญ์ |
-| 5–6 | โค้ด | Events/Lots API, สร้างล็อกเป็นช่วง, อัปโหลดภาพผัง (presigned POST ทดสอบด้วย moto) | สรวิชญ์ |
-| 7–8 | โค้ด | `POST /bookings` (transaction + quota), สลิป, `shared/scheduler.py` + expire_booking, fallback 7.6 | ปณวัฒน์ |
-| 9 | โค้ด | approve / move / reject / cancel, summary | ปณวัฒน์ |
-| 10 | โค้ด | Notifications API และเติม notify ให้ครบทุกเหตุการณ์ · เทสต์ flow ครบในเครื่อง | สรวิชญ์ |
+| 3–4 | โค้ด | post_confirmation, `shared/auth.py`, `/me`, Admin API, `scripts/seed.py` (เขียนไว้ก่อน รันจริงสัปดาห์ 11) ✅ | กิตติพิชญ์, สรวิชญ์ |
+| 5–6 | โค้ด | Events/Lots API, เก็บผังกริด + sync ล็อก, `GET /organizer/events`, summary, งานตัวอย่างใน seed ✅ | สรวิชญ์ |
+| 7–8 | โค้ด | `POST /bookings` (transaction + quota), สลิป, `shared/scheduler.py` + expire_booking, fallback 7.6, ผู้ขายยกเลิก ✅ | ปณวัฒน์ |
+| 9 | โค้ด | approve / move / reject / cancel, รายการการจองของงาน (summary ทำแล้วในสัปดาห์ 5–6) ✅ | ปณวัฒน์ |
+| 10 | โค้ด | Notifications API และเติม notify ให้ครบทุกเหตุการณ์ · ฟีเจอร์ตามข้อ 14 (เช็กอิน, สถิติร้าน, ยกเลิกระงับ, ข้อมูลเสริม) ✅ | สรวิชญ์ |
 | 11 | AWS | **สร้าง resource ชุด `dev` ใน Console** (หัวข้อ 3) + อัปโหลด zip, ทดสอบเรื่องในข้อ 10.2, race test, เชื่อม frontend, แก้บั๊ก | ทุกคน |
 | 12 | AWS | สร้างชุด `prod`, seed ข้อมูลเดโม, เอกสาร API | กิตติพิชญ์ |
 
@@ -473,16 +563,73 @@ ruff check . && ruff format --check .
 
 ---
 
-## 14. จุดที่ spec กับ Frontend ปัจจุบันยังไม่ตรงกัน (ต้องตัดสินใจก่อนเริ่ม)
+## 14. จุดที่ spec กับ Frontend ปัจจุบันไม่ตรงกัน — ✅ ตัดสินครบแล้ว (2026-10-27)
 
-Frontend ใน `Frontend/src/types.ts` มีความสามารถมากกว่า scope บางส่วน ควรตกลงกันก่อนเริ่ม Booking API
+Frontend ใน `Frontend/src/types.ts` มีความสามารถมากกว่า scope บางส่วน ทุกข้อด้านล่างตัดสินแล้ว (D5 แยกเป็น D5a–D5f)
 
 | เรื่อง | Scope | Frontend ตอนนี้ | ข้อเสนอ |
 |---|---|---|---|
 | จองรายวัน | 1 การจอง = 1 ล็อกตลอดงาน | `days[]` + ค่าธรรมเนียมรายวัน, สถานะล็อกแยกต่อวัน | ✅ **ตัดสินแล้ว (2026-10-27): จองทั้งงานตาม scope** Lots SK เป็น `lotId` frontend ต้องซ่อนการเลือกวันและ surcharge และใช้ `lotState` ชุดเดียว |
 | จองหลายล็อกพร้อมกัน | ไม่ระบุ | `BookingDraft.lots[]`, `groupId` | ✅ **ตัดสินแล้ว (2026-10-27): ได้ แบบ all-or-nothing** ดูข้อ 7.1 |
-| ขั้นตอนสลิป | PENDING_PAYMENT → อัปโหลดภายใน 24 ชม. | แนบสลิปพร้อมส่งคำขอเลย | backend รองรับทั้งสองแบบได้: หน้าเว็บเรียก `slip-url` + `slip` ต่อทันทีหลังสร้าง |
-| ผังล็อก | ตาราง/รายการ + รูปภาพผัง | ตัววาดผังแบบกริด (`layout`, `cols`, `rows`) | เก็บ `layout` เป็นฟิลด์ใน Events ได้ แต่ scope ระบุว่าผังคลิกเลือกอยู่นอกขอบเขต |
-| อนุมัติอัตโนมัติ, เช็กอิน QR, ไฟฟ้า/จำนวนคน | ไม่มี | `autoApprove`, `checkedIn`, `power`, `staff` | นอก scope ตอนนี้ เพิ่มภายหลังได้ถ้ามีเวลา |
-| ชื่อสถานะ | `PENDING_PAYMENT`, `PENDING_REVIEW`, ... | `pending`, `approved`, ... | backend ใช้ชื่อตาม scope แล้วให้ frontend map เอง |
-| ชื่อฟิลด์ | — | camelCase | backend ส่ง JSON เป็น **camelCase** ให้ตรง frontend (ภายใน Python ใช้ snake_case ได้ ใช้ `alias_generator=to_camel` ของ pydantic) |
+| ขั้นตอนสลิป | PENDING_PAYMENT → อัปโหลดภายใน 24 ชม. | แนบสลิปพร้อมส่งคำขอเลย | ✅ **ตัดสินแล้ว (2026-10-27): จองก่อน แนบสลิปทีหลังภายใน `slipDeadlineMinutes` ตาม scope และใช้สลิปเดียวต่อชุด** frontend ที่อยากแนบตอนส่งคำขอให้เรียก `slip-url` + `slip` ต่อทันทีหลังจอง (ข้อ 7.2) |
+| ผังล็อก | ตาราง/รายการ + รูปภาพผัง | ตัววาดผังแบบกริด (`layout`, `cols`, `rows`) | ✅ **ตัดสินแล้ว (2026-10-27): ใช้ผังกริดตาม frontend** เก็บฟิลด์ผังใน Events และ sync ล็อกด้วย `PUT /events/{id}/lots` ไม่มีอัปโหลดรูปผัง (ข้อ 4.2, 4.3) |
+| อนุมัติอัตโนมัติ (D5a) | ไม่มี | `autoApprove` ต่องาน | ✅ **ตัดสินแล้ว (2026-10-27): ไม่ทำ** ผู้จัดงานตรวจสลิปทุกครั้ง frontend ซ่อนสวิตช์ |
+| เช็กอิน QR (D5b) | ไม่มี | QR ในตั๋ว, `checkedIn` | ✅ **ตัดสินแล้ว: ทำ** QR = `bookingId` ผู้จัดงานเรียก `POST /bookings/{id}/check-in` ได้เฉพาะการจอง APPROVED และเฉพาะวันงาน (`startDate`–`endDate` เวลาไทย) เรียกซ้ำได้ผลเดิม (ข้อ 7.7) |
+| ข้อมูลร้านตอนจอง (D5c) | `shopName`, `productDescription` | `category`, `staff`, `power`, `note` | ✅ **ตัดสินแล้ว: เก็บเป็นฟิลด์เสริม** ใน Booking (ไม่บังคับ) |
+| ยกเลิกการระงับ (D5d) | ไม่มี | ปุ่มยกเลิกระงับใน Admin | ✅ **ตัดสินแล้ว: ทำ** `POST /admin/users/{userId}/unsuspend` → ACTIVE (ข้อ 9) |
+| สถิติร้านของผู้จัดงาน (D5e) | ไม่มี | `VendorsPage`: approved, total, showRate, flagged | ✅ **ตัดสินแล้ว: ทำ** `GET /organizer/vendors` คำนวณจากงานทั้งหมดของผู้จัดคนนั้น (ข้อ 7.8) |
+| โปรไฟล์ร้าน (D5f) | ชื่อร้าน, ประเภท, เบอร์ | `line`, `bio`, `power` | ✅ **ตัดสินแล้ว: เก็บใน Users** ผู้ขายแก้ได้ผ่าน `PUT /me` |
+| ชื่อสถานะ | `PENDING_PAYMENT`, `PENDING_REVIEW`, ... | `pending`, `approved`, ... | ✅ **ตัดสินแล้ว: ใช้ชื่อตาม scope ตัวพิมพ์ใหญ่** frontend map เอง (F4) |
+| ชื่อฟิลด์ | — | camelCase | ✅ backend ส่ง JSON เป็น **camelCase** ให้ตรง frontend (ภายใน Python ใช้ snake_case ได้ ใช้ `alias_generator=to_camel` ของ pydantic) |
+
+---
+
+## 15. งานที่ฝั่ง Frontend ต้องแก้
+
+รายการนี้รวมทุกอย่างที่ frontend (`Frontend/src`) ต้องเปลี่ยนเพื่อใช้กับ backend จริง ทุกครั้งที่ backend เพิ่มหรือเปลี่ยน API ให้เพิ่มแถวที่นี่ด้วย (สถานะติดตามใน PROGRESS.md หัวข้อ "งานฝั่ง Frontend")
+
+### 15.1 ทั่วไป
+| # | เรื่อง | ต้องแก้อะไร | อ้างอิง |
+|---|---|---|---|
+| F1 | เชื่อม Cognito แทนบัญชีจำลอง | ใช้ `aws-amplify/auth` (`signUp`, `confirmSignUp`, `signIn`, `signOut`, `fetchAuthSession`) แทนการเก็บ `passwordHash` ใน `AppProvider` อ่านค่า `VITE_API_URL`, `VITE_USER_POOL_ID`, `VITE_USER_POOL_CLIENT_ID`, `VITE_REGION` | 3.7, 5.1 |
+| F2 | แนบ token | ทุก route ที่ไม่ใช่สาธารณะส่ง header `Authorization: Bearer <accessToken>` (จาก `fetchAuthSession().tokens.accessToken`) | 5.2 |
+| F3 | รูปแบบ error | ทุก error เป็น `{ error: { code, message, details? } }` แสดง `message` ให้ผู้ใช้ได้เลย · `401` → พาไปหน้าเข้าสู่ระบบ · `403 ACCOUNT_SUSPENDED` → แจ้งว่าบัญชีถูกระงับ · `400 VALIDATION_ERROR` มี `details: [{field, message}]` | 6 |
+| F4 | ค่าสถานะเป็นตัวพิมพ์ใหญ่ | map เป็นค่าของ frontend เอง: role `SELLER/ORGANIZER/ADMIN` · บัญชี `ACTIVE/PENDING/REJECTED/SUSPENDED` · งาน `publishStatus` `DRAFT/OPEN/CLOSED` และ `status` `DRAFT/SCHEDULED/OPEN/CLOSED/ENDED` · ล็อก `AVAILABLE→free`, `HELD→pending`, `BOOKED→booked`, `DISABLED→disabled` | 4, 14 |
+| F5 | id ของผู้ใช้ | ใช้ `userId` (= Cognito `sub`) แทน `accountId` / `shopId` / `organizerId` แยกกัน | 4.1 |
+
+### 15.2 สมัครสมาชิกและบัญชี
+| # | เรื่อง | ต้องแก้อะไร | อ้างอิง |
+|---|---|---|---|
+| F6 | สมัคร | `signUp` ส่ง `custom:role` = `seller`/`organizer` · `confirmSignUp` ส่งโปรไฟล์ใน `options.clientMetadata: { name, phone, orgName, category }` (string ทั้งหมด) · เก็บค่าฟอร์มใน `sessionStorage` ระหว่างรอ OTP | 5.1 |
+| F7 | หลังผู้จัดงานได้รับอนุมัติ | เรียก `fetchAuthSession({ forceRefresh: true })` (หรือให้ล็อกอินใหม่) ถึงจะได้ group `Organizer` ใน token | 5.3 |
+| F8 | หน้าโปรไฟล์ | `GET /me` · `PUT /me` แก้ได้เฉพาะฟิลด์ของ role ตัวเอง (ผู้ขาย `displayName, phone, shopName, category` · ผู้จัดงาน `displayName, phone, orgName`) ผู้จัดงานที่ PENDING/REJECTED เรียกได้ ใช้แสดงสถานะรออนุมัติ | 4.1 |
+| F9 | หน้า Admin | `GET /admin/organizers?status=PENDING` · `POST /admin/organizers/{userId}/approve` · `POST .../reject` `{reason}` · `POST /admin/users/{userId}/suspend` `{reason}` · `POST /admin/users/{userId}/unsuspend` (ปุ่มยกเลิกระงับใช้ route นี้) · `GET /admin/events` | 9 |
+
+### 15.3 งานและล็อก
+| # | เรื่อง | ต้องแก้อะไร | อ้างอิง |
+|---|---|---|---|
+| F10 | ฟอร์มงาน | ส่งไป `POST /events` / `PUT /events/{id}` เปลี่ยนชื่อฟิลด์: `bookingOpens→bookingOpensAt`, `bookingCloses→bookingClosesAt` (ISO ที่มี timezone เช่น `2026-11-01T09:00:00+07:00`) · `status→publishStatus` · ใช้ `startDate`/`endDate` แทน `days` · เพิ่ม `slipDeadlineMinutes` · `maxLotsPerSeller: null` = ไม่จำกัด · ส่ง `cols, rows, layout, disabledCells, lotSizes` ไปด้วย | 4.2 |
+| F11 | ตัดการจองรายวัน | เอาตัวเลือกวัน, `days`, ค่าธรรมเนียมรายวัน (`surcharge`) และ `lotState` แยกรายวันออก ราคาล็อก = ราคาโซน | D1 |
+| F12 | บันทึกล็อก | หลังบันทึกผัง เรียก `PUT /events/{id}/lots` ด้วย `{ lots: [{ lotId, zoneId, size?, disabled }] }` สร้างจาก `lotsOf(layout)` + `lotSizes` (ขนาดเฉพาะล็อก) + `disabledCells` · รับมือ `409 LOT_IN_USE` (ล็อกที่มีคนจองแก้/ลบไม่ได้) และ `400 UNKNOWN_ZONE` | 4.3 |
+| F13 | เผยแพร่ / ปิดงาน | เผยแพร่ = `PUT /events/{id}` `{ publishStatus: "OPEN" }` (ต้อง sync ล็อกก่อน ไม่งั้น `409 NO_LOTS`) · ปิดรับจอง = `POST /events/{id}/close` | 6 |
+| F14 | หน้ารายการงาน | สาธารณะ `GET /events` (ไม่มี `payment` และผังกริด) → หน้ารายละเอียด `GET /events/{id}` + `GET /events/{id}/lots` · ผู้จัดงาน `GET /organizer/events` (มีงานฉบับร่างและผังกริดครบ) | 6 |
+| F15 | สรุปงาน | `GET /events/{id}/summary` → `{ lots: {total, AVAILABLE, HELD, BOOKED, DISABLED}, bookings: {สถานะ: จำนวน}, revenue }` | 6 |
+| F16 | อนุมัติอัตโนมัติ | ไม่ทำ (D5a) ซ่อนสวิตช์ `autoApprove` และไม่ต้องส่ง | D5a |
+
+### 15.4 การจองและแจ้งเตือน (เติมเมื่อทำ backend สัปดาห์ 7–10)
+| # | เรื่อง | ต้องแก้อะไร | อ้างอิง |
+|---|---|---|---|
+| F17 | จองหลายล็อก | `POST /bookings` `{ eventId, lotIds: [...] (≤ 20), shopName, productDescription? }` ได้ทั้งชุดหรือ `409` ทั้งชุด → `201 { groupId, bookings }` · error ที่ต้องรับมือ: `LOT_NOT_AVAILABLE` (`details.lotIds` = ล็อกที่ถูกจองไป ให้เลือกใหม่), `QUOTA_EXCEEDED`, `BOOKING_CLOSED`, `UNKNOWN_LOT` · ส่งข้อมูลจาก `BookingDraft.shop` ไปด้วยได้: `category`, `staff` (ข้อความ), `power` (bool), `note` (D5c) | 7.1, D2, D5c |
+| F19 | แนบสลิปทีหลัง (D3) | หลังจองได้ `PENDING_PAYMENT` แสดงเวลาที่เหลือจาก `expiresAt` · ขั้นแนบสลิป: `POST /bookings/{id}/slip-url {contentType}` → สร้าง `FormData` ใส่ทุกค่าใน `fields` แล้ว `file` เป็นช่องสุดท้าย → `POST` ไปที่ `url` → `POST /bookings/{id}/slip {key}` · **สลิปเดียวต่อชุด** แนบครั้งเดียวทุกล็อกในชุดเป็น `PENDING_REVIEW` · ถ้าอยากแนบพร้อมส่งคำขอเหมือนเดิม ให้เรียก 3 ขั้นนี้ต่อทันทีหลัง `POST /bookings` · รับ jpg/png/pdf ไม่เกิน 5 MB · `409 BOOKING_EXPIRED` = หมดเวลา ต้องจองใหม่ · เอา `slipAmount`, `slipName` ออก | 7.2, D3 |
+| F20 | ดูสลิป | `GET /bookings/{id}/slip` → `{ url }` อายุ 5 นาที (ผู้ขายเจ้าของ / ผู้จัดงาน) ขอใหม่ทุกครั้งที่เปิดดู | 7.2 |
+| F21 | การจองของฉัน | `GET /bookings/me` (ใหม่สุดก่อน) · สถานะ `PENDING_PAYMENT` (รอแนบสลิป), `PENDING_REVIEW` (รอตรวจ), `APPROVED`, `REJECTED`, `CANCELLED`, `EXPIRED` — frontend มีแค่ `pending/approved/rejected/cancelled` ต้องเพิ่ม 2 สถานะ (รอสลิป, หมดเวลา) · จัดกลุ่มตาม `groupId` ได้ · ใช้ `lotId` แทน `lot` และ `createdAt` แทน `submittedAt` | 4.4, 7 |
+| F22 | ผู้ขายยกเลิก | `POST /bookings/{id}/cancel` ได้เฉพาะ `PENDING_PAYMENT` / `PENDING_REVIEW` ทีละล็อก | 7.4 |
+| F24 | หน้าตรวจการจองของผู้จัดงาน | `GET /events/{id}/bookings?status=PENDING_REVIEW` (กรองตามสถานะได้) แทนการอ่าน bookings ทั้งหมดใน store · ปุ่มดูสลิปใช้ F20 | 7.3.1 |
+| F25 | อนุมัติ / ย้ายล็อก | `POST /bookings/{id}/approve` `{}` หรือ `{ newLotId }` · อนุมัติได้เฉพาะ `PENDING_REVIEW` · ย้ายล็อกไม่คิดส่วนต่างราคา (`amount` คงเดิม) · `409 LOT_NOT_AVAILABLE` = ล็อกปลายทางไม่ว่าง · `moves[]` มี `by` เพิ่ม | 7.3 |
+| F26 | ปฏิเสธ / ยกเลิกหลังอนุมัติ | `POST /bookings/{id}/reject {reason}` · `POST /bookings/{id}/cancel {reason}` (ผู้จัดงาน, เฉพาะ APPROVED) · ต้องกรอกเหตุผลทั้งสองแบบ | 7.4 |
+| F27 | เช็กอิน QR | ตั๋วของผู้ขายสร้าง QR จาก `bookingId` (เฉพาะ APPROVED) · ผู้จัดงานสแกนแล้วเรียก `POST /bookings/{id}/check-in` ได้เฉพาะวันงาน (`409 NOT_EVENT_DAY`) เรียกซ้ำได้ · ใช้ `checkedIn` / `checkedInAt` จาก Booking · ข้อความ `booking_approved` จาก backend ไม่มีคำว่า QR แล้ว ถ้าอยากบอกให้แสดงในหน้าตั๋วเอง | 7.7, D5b |
+| F28 | หน้ารายชื่อร้าน (VendorsPage) | `GET /organizer/vendors` แทน `vendorStats()` ในเครื่อง ได้ `shop` (โปรไฟล์ผู้ขาย ใช้ `userId`, `shopName`, `displayName` แทน `Shop.id/name/owner`), `approved`, `total`, `pastCount`, `showRate`, `flagged` | 7.8, D5e |
+| F29 | โปรไฟล์ร้าน | `PUT /me` ผู้ขายแก้ `line`, `bio`, `power` (ข้อความ) ได้ · หน้า ShopProfilePage อ่านจาก `GET /me` แทน `Shop` | 4.1, D5f |
+| F30 | แจ้งเตือนยกเลิกระงับ | เพิ่ม type `account_unsuspended` | 8 |
+| F23 | ประเภทแจ้งเตือนใหม่ | เพิ่ม `booking_slip_uploaded` และ `booking_expired` ใน `NotificationType` + ไอคอนใน `data/options.ts` · ข้อความมาจาก backend แล้ว ไม่ต้องสร้างเองใน `data/notifications.ts` | 8 |
+| F18 | แจ้งเตือน | poll `GET /notifications` ทุก 30–60 วินาที → `{ items, unreadCount }` (ใช้ `id` ของ item แทน `AppNotification.id`, ไม่มี `accountId`) · อ่านแล้ว `POST /notifications/read` `{ ids }` หรือ `{ all: true }` · ไม่ต้องสร้างแจ้งเตือนเองใน `AppProvider` อีก backend สร้างให้หมด | 8 |

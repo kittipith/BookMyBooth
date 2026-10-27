@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.13"
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "tests"]
+pythonpath = ["src", "tests", "scripts"]
 testpaths = ["tests"]
 addopts = "-q"
 
@@ -18,4 +18,4 @@ extend-exclude = ["build"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["functions", "shared", "domain", "apigw", "tables"]
+known-first-party = ["functions", "shared", "domain", "apigw", "tables", "helpers", "seed"]

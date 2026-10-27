@@ -9,8 +9,12 @@ class AppError(Exception):
         self.details = details
 
 
-def bad_request(message: str, code: str = "BAD_REQUEST") -> AppError:
-    return AppError(code, message, 400)
+def bad_request(message: str, code: str = "BAD_REQUEST", details: object = None) -> AppError:
+    return AppError(code, message, 400, details)
+
+
+def unauthorized(message: str = "กรุณาเข้าสู่ระบบ", code: str = "UNAUTHORIZED") -> AppError:
+    return AppError(code, message, 401)
 
 
 def forbidden(message: str = "ไม่มีสิทธิ์ทำรายการนี้", code: str = "FORBIDDEN") -> AppError:
