@@ -2,18 +2,22 @@
 
 > อ้างอิงจาก [BookMtBooth-scope.md](../BookMtBooth-scope.md)
 > Stack: API Gateway (HTTP API) + AWS Lambda (**Python 3.13**) + DynamoDB + S3 + Cognito + EventBridge Scheduler
-> IaC: AWS SAM | สภาพแวดล้อม: AWS Academy Learner Lab (`us-east-1`, ใช้ `LabRole`)
+> การสร้าง resource: **สร้างเองผ่าน AWS Console** ตาม checklist หัวข้อ 3 (ไม่ใช้ SAM / CloudFormation) | สภาพแวดล้อม: AWS Academy Learner Lab (`us-east-1`, ใช้ `LabRole`)
 
 ---
 
 ## 1. หลักการออกแบบ
 
-1. **ทุก resource อยู่ใน SAM template เดียว** สั่ง `sam deploy` ครั้งเดียวได้ backend ครบ เพื่อให้สร้างใหม่ได้ทันทีถ้าบัญชี Lab ถูก reset
-2. **ไม่สร้าง IAM role เอง** ทุก Lambda, Scheduler และ Cognito trigger ใช้ `LabRole` ที่รับเข้ามาเป็น parameter
+1. **สร้าง resource เองใน AWS Console ตาม checklist หัวข้อ 3** (ตัดสินใจ 2026-10-27 ไม่ใช้ SAM) ชื่อ resource, key ของตาราง และ env var ต้องตรงกับที่โค้ดใช้ทุกตัว ถ้าบัญชี Lab ถูก reset ให้สร้างใหม่ตาม checklist เดิม
+2. **ไม่สร้าง IAM role เอง** ทุก Lambda, Scheduler และ Cognito trigger ใช้ `LabRole` ที่มีอยู่แล้ว (ใน Console เลือก *Use an existing role → LabRole* ห้ามกด *Create a new role*)
 3. **Lambda น้อยตัว แยกตามกลุ่มงาน** (ประมาณ 6 ตัว) ใช้ router ภายในแทนการทำ 1 endpoint ต่อ 1 function ลดจำนวน cold start และช่วยให้อยู่ใต้ limit 10 concurrent ของ Lab
 4. **สถานะทุกอย่างเปลี่ยนด้วย DynamoDB Transaction + Condition** กันการจองซ้ำและกัน race condition ระหว่างผู้ขาย ผู้จัดงาน และตัวหมดเวลา
 5. **ตรวจสิทธิ์ 2 ชั้น** API Gateway ตรวจ JWT ส่วน Lambda ตรวจ group และความเป็นเจ้าของข้อมูลซ้ำ
-6. **Lambda ทุกตัวใช้โค้ดชุดเดียวกัน** (`CodeUri: src/`) ต่างกันแค่ `Handler` ทำให้แชร์ `shared/` และ `domain/` ได้โดยไม่ต้องทำ Layer เอง
+6. **Lambda ทุกตัวใช้โค้ดชุดเดียวกัน** อัปโหลด zip ไฟล์เดียว (`build/lambda.zip` จาก `scripts/build_zip.py`) ให้ทุก function ต่างกันแค่ `Handler` ทำให้แชร์ `shared/` และ `domain/` ได้โดยไม่ต้องทำ Layer เอง
+7. **เขียนโค้ดและทดสอบในเครื่องก่อน แล้วค่อยขึ้น AWS** (ตัดสินใจ 2026-10-27) แบ่งเป็น 2 ช่วง
+   - **ช่วงที่ 1 — โค้ด (สัปดาห์ 1–10):** เขียนโค้ดทุกส่วน ทดสอบด้วย pytest + moto และ ruff เท่านั้น **ยังไม่สร้าง resource ใด ๆ บน AWS**
+   - **ช่วงที่ 2 — ขึ้น AWS (สัปดาห์ 11–12):** สร้าง resource ชุด `dev` ใน Console ตามหัวข้อ 3 อัปโหลด zip ทดสอบเรื่องที่ moto จำลองไม่ได้ (ข้อ 10.2) เชื่อมกับ frontend จริง แล้วสร้างชุด `prod`
+   - ความเสี่ยงที่ยอมรับ: ไม่มีเครื่องมือตรวจว่าตั้งค่าใน Console ตรงกับโค้ดไหม ต้องตั้งตาม checklist หัวข้อ 3 ทีละข้อ และให้ `pytest` + `ruff` ผ่านก่อน push ทุกครั้ง เผื่อเวลาแก้ไว้ในสัปดาห์ 11
 
 ---
 
@@ -22,10 +26,10 @@
 ```
 Backend/
 ├── PLAN.md                      ← ไฟล์นี้
-├── template.yaml                ← SAM template (ทุก resource)
-├── samconfig.toml               ← ค่าตั้งต้นของ sam deploy (stack name, region, parameters)
+├── PROGRESS.md                  ← ติดตามความคืบหน้า
 ├── pyproject.toml               ← ตั้งค่า pytest, ruff
-├── requirements-dev.txt         ← pytest, moto, boto3, ruff, requests (ใช้ในเครื่อง ไม่ขึ้น Lambda)
+├── requirements-dev.txt         ← pytest, moto, boto3, ruff, requests, powertools, pydantic (ใช้ในเครื่อง ไม่ขึ้น Lambda)
+├── build/                       ← (ไม่ commit) lambda.zip ที่ได้จาก scripts/build_zip.py
 ├── src/
 │   ├── requirements.txt         ← dependency ที่ขึ้น Lambda: python-ulid (pydantic มากับ Powertools layer แล้ว)
 │   ├── functions/
@@ -49,10 +53,13 @@ Backend/
 │       ├── messages.py          ← ข้อความแจ้งเตือนภาษาไทย
 │       └── schemas.py           ← pydantic model ของ request body
 ├── scripts/
+│   ├── build_zip.py             ← สร้าง build/lambda.zip (src/ + python-ulid แบบ Linux x86_64) ไว้อัปโหลดใน Lambda Console
 │   ├── seed.py                  ← สร้างบัญชีเดโม (admin/organizer/seller) และงานตัวอย่าง
 │   └── race_test.py             ← ยิงจองล็อกเดียวกันพร้อมกัน ตรวจว่าสำเร็จแค่ 1
-├── events/                      ← ตัวอย่าง event JSON สำหรับ sam local invoke
 └── tests/                       ← pytest + moto
+    ├── tables.py                ← โครงสร้างตาราง DynamoDB (ต้องตรงกับหัวข้อ 4 และที่สร้างใน Console)
+    ├── apigw.py                 ← สร้าง event ของ HTTP API + JWT claims สำหรับเทสต์
+    └── conftest.py              ← fixture `aws` สร้างตารางและ bucket ใน moto
 ```
 
 ### ไลบรารี
@@ -65,30 +72,101 @@ Backend/
 | `pytest`, `moto` | unit test โดยจำลอง DynamoDB/S3 ในเครื่อง | `requirements-dev.txt` |
 | `ruff` | lint + format | `requirements-dev.txt` |
 
-> - ล็อกเลข version ของ layer ไว้ (`:40`) เพื่อให้ deploy ซ้ำได้ผลเหมือนเดิม ถ้าต้องการ version ใหม่ ดูจาก SSM parameter `/aws/service/powertools/python/x86_64/python3.13/latest` (`lambda:ListLayerVersions` ข้าม account ถูกปฏิเสธใน Lab)
-> - dependency ที่ bundle เองเหลือแค่ `python-ulid` ซึ่งเป็น pure Python จึงรัน `sam build` บน Windows ได้โดยไม่ต้องใช้ Docker หรือ CloudShell
+> - ล็อกเลข version ของ layer ไว้ (`:40`) ให้ทุก function ใช้ตัวเดียวกัน ถ้าต้องการ version ใหม่ ดูจาก SSM parameter `/aws/service/powertools/python/x86_64/python3.13/latest` (`lambda:ListLayerVersions` ข้าม account ถูกปฏิเสธใน Lab)
+> - dependency ที่ใส่ใน zip เองมีแค่ `python-ulid` (pure Python) `build_zip.py` ลง wheel แบบ Linux x86_64 ให้อยู่แล้ว จึง build บน Windows ได้เลย
 
 ---
 
-## 3. Resource ใน SAM template
+## 3. Resource ที่ต้องสร้างใน AWS Console (สัปดาห์ 11)
 
-| Resource | ชนิด | ตั้งค่าสำคัญ |
+ทุกอย่างอยู่ใน `us-east-1` ตั้งชื่อเป็น `bookmybooth-<stage>-<ชื่อ>` (`<stage>` = `dev` หรือ `prod`) สร้างตามลำดับด้านล่าง เพราะขั้นหลังต้องใช้ค่าจากขั้นก่อน
+
+### 3.1 DynamoDB — 5 ตาราง
+ทุกตาราง: **Capacity mode = On-demand**, key ทุกตัวเป็นชนิด **String**, GSI ใช้ **Projection = All** (รายละเอียดฟิลด์ดูหัวข้อ 4 ส่วนในเทสต์อยู่ที่ `tests/tables.py`)
+
+| ชื่อตาราง | Partition key | Sort key | GSI (ชื่อ: PK, SK) |
+|---|---|---|---|
+| `bookmybooth-<stage>-users` | `userId` | — | `byRoleStatus`: `roleStatus`, `createdAt` |
+| `bookmybooth-<stage>-events` | `eventId` | — | `byOrganizer`: `organizerId`, `createdAt` · `byPublishStatus`: `publishStatus`, `startDate` |
+| `bookmybooth-<stage>-lots` | `eventId` | `lotId` | — |
+| `bookmybooth-<stage>-bookings` | `bookingId` | — | `bySeller`: `sellerId`, `createdAt` · `byEventStatus`: `eventId`, `statusCreatedAt` |
+| `bookmybooth-<stage>-notifications` | `userId` | `sk` | — · หลังสร้างให้เปิด **TTL** ที่ attribute `ttl` |
+
+### 3.2 S3 — bucket เก็บสลิปและภาพผัง
+- ชื่อ `bookmybooth-<stage>-files-<account id>` (ชื่อ bucket ต้องไม่ซ้ำทั้งโลก)
+- **Block all public access** = เปิด, Object Ownership = *Bucket owner enforced*, Encryption = SSE-S3
+- Permissions → CORS:
+  ```json
+  [{ "AllowedMethods": ["GET", "POST"], "AllowedOrigins": ["http://localhost:5173", "https://<โดเมน Amplify>"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3000 }]
+  ```
+
+### 3.3 Cognito — User Pool
+- ชื่อ `bookmybooth-<stage>` · Sign-in ด้วย **Email** · ยืนยันอีเมลอัตโนมัติ · ส่งอีเมลด้วย *Send email with Cognito* · ลืมรหัสผ่านผ่านอีเมล
+- Password policy: ยาวอย่างน้อย 8, ต้องมีตัวพิมพ์เล็กและตัวเลข
+- Custom attribute: `role` (String, mutable, ยาว 1–20) → frontend ส่งเป็น `custom:role`
+- App client: ชนิด **Public client / SPA** (ไม่มี client secret), auth flow `ALLOW_USER_SRP_AUTH` + `ALLOW_REFRESH_TOKEN_AUTH`, access/ID token อายุ 1 ชม., refresh token 30 วัน, เปิด *Prevent user existence errors*
+- Groups: `Seller`, `Organizer`, `Admin` (ตัวพิมพ์ต้องตรง เพราะโค้ดเช็กชื่อนี้)
+- **PostConfirmation trigger** ตั้งหลังสร้าง Lambda `post_confirmation` แล้ว (User pool → Extensions → Add Lambda trigger) Console จะเพิ่มสิทธิ์ให้ Cognito เรียก Lambda เอง
+
+### 3.4 Lambda — 6 function
+สร้างด้วยค่าเดียวกันทุกตัว แล้วอัปโหลด `build/lambda.zip` ไฟล์เดียวกัน (*Upload from → .zip file*)
+
+| ตั้งค่า | ค่า |
+|---|---|
+| Runtime / Architecture | Python 3.13 / x86_64 |
+| Execution role | *Use an existing role* → `LabRole` |
+| Layer | *Specify an ARN* → `arn:aws:lambda:us-east-1:017000801446:layer:AWSLambdaPowertoolsPythonV3-python313-x86_64:40` |
+| Timeout / Memory | 10 วินาที / 256 MB |
+
+| Function | Handler | ถูกเรียกโดย |
 |---|---|---|
-| `LabRoleName` | Parameter | default `LabRole` แล้วสร้าง ARN ด้วย `!Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${LabRoleName}` จึง deploy ได้ทุกบัญชี Lab โดยไม่ต้องกรอก account id |
-| `Stage` | Parameter | `dev` / `prod` ใช้ต่อท้ายชื่อ resource |
-| `AllowedOrigins` | Parameter (CommaDelimitedList) | default `http://localhost:5173` ใส่โดเมน Amplify เพิ่มตอน deploy ใช้กับ CORS ของ HttpApi และ bucket |
-| `Globals.Function` | | `Runtime: python3.13`, `Architectures: [x86_64]`, `CodeUri: src/`, `Layers: [Powertools]`, `Timeout: 10`, `MemorySize: 256`, env = ชื่อตาราง/bucket/ARN (**ไม่มี `Role`** เพราะ SAM ไม่รองรับ `Role` ใน Globals) |
-| `UserPool` | `AWS::Cognito::UserPool` | ล็อกอินด้วยอีเมล, auto-verify email, ส่งอีเมลแบบ `COGNITO_DEFAULT`, custom attribute `custom:role` (seller/organizer), trigger `PostConfirmation` |
-| `UserPoolClient` | `AWS::Cognito::UserPoolClient` | ไม่มี secret (ใช้จาก SPA), flow `USER_SRP_AUTH` + refresh token |
-| `SellerGroup` / `OrganizerGroup` / `AdminGroup` | `AWS::Cognito::UserPoolGroup` | |
-| `HttpApi` | `AWS::Serverless::HttpApi` | JWT authorizer เป็น `DefaultAuthorizer` (issuer = User Pool, audience = Client ID), CORS ตาม `AllowedOrigins`, **throttling burst 10 / rate 20** เพื่อไม่ให้เกิน concurrency ของ Lab · route สาธารณะต้องใส่ `Auth: { Authorizer: NONE }` |
-| ตาราง DynamoDB 5 ตาราง | `AWS::DynamoDB::Table` | On-demand, ดูหัวข้อ 4 |
-| `FilesBucket` | `AWS::S3::Bucket` | private, block public access, CORS ให้ POST/GET จากหน้าเว็บ |
-| Lambda 6 ตัว | `AWS::Serverless::Function` | `Handler: functions.bookings.app.lambda_handler` เป็นต้น และใส่ `Role: !Sub ...role/${LabRoleName}` **ทีละตัว** |
-| `PostConfirmationPermission` | `AWS::Lambda::Permission` | ให้ Cognito เรียก Lambda ได้ |
-| Outputs | | `ApiUrl`, `UserPoolId`, `UserPoolClientId`, `Region`, `BucketName` → ใส่เป็น env `VITE_*` ใน Amplify |
+| `bookmybooth-<stage>-events` | `functions.events.app.lambda_handler` | API Gateway |
+| `bookmybooth-<stage>-bookings` | `functions.bookings.app.lambda_handler` | API Gateway |
+| `bookmybooth-<stage>-admin` | `functions.admin.app.lambda_handler` | API Gateway |
+| `bookmybooth-<stage>-me` | `functions.me.app.lambda_handler` | API Gateway |
+| `bookmybooth-<stage>-post-confirmation` | `functions.post_confirmation.app.lambda_handler` | Cognito trigger |
+| `bookmybooth-<stage>-expire-booking` | `functions.expire_booking.app.lambda_handler` | EventBridge Scheduler |
 
-> หมายเหตุ: ห้ามใช้ `Policies:` ใน Lambda ของ SAM เพราะจะทำให้ SAM สร้าง role ใหม่ ให้ใช้ `Role:` อย่างเดียว ตรวจหลัง deploy ว่า stack ไม่มี resource `AWS::IAM::*` (`CAPABILITY_IAM` ที่ `sam deploy` ใส่ให้เองไม่มีผลถ้า template ไม่สร้าง IAM)
+**Environment variables** ใส่ชุดนี้ทุก function (copy ทีละตัวใน Configuration → Environment variables):
+
+| Key | Value |
+|---|---|
+| `USERS_TABLE` / `EVENTS_TABLE` / `LOTS_TABLE` / `BOOKINGS_TABLE` / `NOTIFICATIONS_TABLE` | ชื่อตารางจาก 3.1 |
+| `FILES_BUCKET` | ชื่อ bucket จาก 3.2 |
+| `POWERTOOLS_SERVICE_NAME` | `bookmybooth` |
+| `POWERTOOLS_LOG_LEVEL` | `INFO` |
+
+เพิ่มเฉพาะบางตัว:
+| Function | Key | Value |
+|---|---|---|
+| admin | `USER_POOL_ID` | User Pool ID จาก 3.3 (ใช้ `admin_add_user_to_group`, `admin_disable_user`) |
+| bookings | `EXPIRE_FUNCTION_ARN` | ARN ของ `bookmybooth-<stage>-expire-booking` |
+| bookings | `SCHEDULER_ROLE_ARN` | ARN ของ `LabRole` (`arn:aws:iam::<account id>:role/LabRole`) |
+
+> โค้ดอ่าน env ผ่าน `shared/db.py` และ module อื่นใน `shared/` ถ้าเพิ่ม env ใหม่ในโค้ด ต้องเพิ่มตารางนี้ด้วย
+
+### 3.5 API Gateway — HTTP API
+1. *Create API → HTTP API* ชื่อ `bookmybooth-<stage>` ใช้ stage `$default` (auto-deploy)
+2. **CORS:** Allow origins = `http://localhost:5173` + โดเมน Amplify · Allow methods = `GET, POST, PUT, DELETE, OPTIONS` · Allow headers = `authorization, content-type` · Max age = 600
+3. **Authorizer:** ชนิด JWT ชื่อ `cognito` · Identity source `$request.header.Authorization` · Issuer `https://cognito-idp.us-east-1.amazonaws.com/<UserPoolId>` · Audience = App client ID
+4. **Routes:** สร้างทุก route ตามตารางหัวข้อ 6 แล้วผูก integration กับ Lambda ตามคอลัมน์ Function (Console เพิ่มสิทธิ์ให้ API Gateway เรียก Lambda เอง)
+   - route ที่ช่องสิทธิ์เขียนว่า **สาธารณะ** ไม่ต้องผูก authorizer ที่เหลือ **ต้องผูก authorizer `cognito` ทุก route**
+   - ระวัง `GET /events/{id}/bookings` ผูกกับ function **bookings** ไม่ใช่ events
+   - ชั้นที่ 2 กันพลาด: `shared/auth.py` คืน 401 เมื่อไม่มี claims ดังนั้นถ้าลืมผูก authorizer ที่ route ไหน route นั้นจะใช้ไม่ได้ (ไม่ใช่เปิดให้ทุกคนใช้)
+5. **Throttling:** stage `$default` → default route throttling burst **10** / rate **20** เพื่อไม่ให้เกิน limit 10 concurrent ของ Lab
+
+### 3.6 EventBridge Scheduler
+ไม่ต้องสร้างเอง function bookings สร้าง schedule `expire-<groupId>` ให้ทีละชุดตอนจอง (ข้อ 7.1) โดยใช้ schedule group `default` และ `SCHEDULER_ROLE_ARN` เป็น role ที่เรียก Lambda
+
+### 3.7 ค่าที่ส่งให้ Frontend (Amplify → Environment variables)
+| Key | เอามาจาก |
+|---|---|
+| `VITE_API_URL` | Invoke URL ของ HTTP API (3.5) |
+| `VITE_USER_POOL_ID` | User Pool ID (3.3) |
+| `VITE_USER_POOL_CLIENT_ID` | App client ID (3.3) |
+| `VITE_REGION` | `us-east-1` |
+
+> ทุกครั้งที่สร้างเสร็จ ให้จดชื่อ/ID ที่ได้จริงลง PROGRESS.md (หัวข้อสัปดาห์ 11) จะได้สร้างซ้ำได้ตรงกันถ้าบัญชีถูก reset
 
 ---
 
@@ -153,12 +231,13 @@ Backend/
    - สร้าง item ใน Users
    - `seller` → `cognito_idp.admin_add_user_to_group(GroupName="Seller")` และ `status = ACTIVE`
    - `organizer` → ไม่ใส่ group, `status = PENDING` และสร้าง Notification ให้ Admin ทุกคน (query Users `ADMIN#ACTIVE`)
-   - ใช้ `event["userPoolId"]` จาก trigger event แทนการอ้าง User Pool ใน env เพื่อเลี่ยง circular dependency ใน template
+   - ใช้ `event["userPoolId"]` จาก trigger event จึงไม่ต้องตั้ง env `USER_POOL_ID` ให้ function นี้
    - ต้อง `return event` กลับให้ Cognito เสมอ
 
 ### 5.2 การตรวจสิทธิ์ต่อ request
 - API Gateway JWT authorizer ตรวจ access token แล้วส่ง claims ให้ Lambda ที่ `event["requestContext"]["authorizer"]["jwt"]["claims"]`
 - `shared/auth.py`
+  - ไม่มี claims (route ไม่ได้ผูก authorizer) → 401 เสมอ
   - `get_user(app)` อ่าน `sub` และ `cognito:groups` (HTTP API ส่ง groups มาเป็น string เช่น `"[Seller]"` ต้อง parse เอง)
   - `require_group("Organizer")` ถ้าไม่มี → 403
   - โหลด Users item แล้วเช็ก `status == "ACTIVE"` เพื่อกันบัญชีที่ถูกระงับซึ่ง token ยังไม่หมดอายุ (ไม่เกิน 1 ชม.)
@@ -211,7 +290,7 @@ def lambda_handler(event, context):
 
 > เพิ่มจาก scope: `GET/PUT /me` (แก้โปรไฟล์ตามหัวข้อ 3.1), `GET /bookings/{id}/slip` (ดูสลิป), `floorplan-url` (อัปโหลดภาพผัง), `POST /events/{id}/close`, `GET /admin/events`
 >
-> route `GET /events/{id}/bookings` อยู่ใน function **bookings** ไม่ใช่ events ต้องผูก route นี้ให้ถูก function ใน template
+> route `GET /events/{id}/bookings` อยู่ใน function **bookings** ไม่ใช่ events ต้องผูก route นี้ให้ถูก function ใน API Gateway Console (ข้อ 3.5)
 
 ### รูปแบบ response
 - สำเร็จ: `200/201` พร้อม JSON ของข้อมูลตรง ๆ
@@ -307,81 +386,87 @@ Response `201`: `{ groupId, bookings: [...] }`
 
 ## 10. การทดสอบ
 
+### 10.1 ช่วงที่ 1 — ในเครื่อง (ทุกฟีเจอร์ต้องมีเทสต์ระดับนี้ก่อน merge)
 | ระดับ | เครื่องมือ | ทดสอบอะไร |
 |---|---|---|
 | Unit | pytest | state machine และ TransactItems ใน `domain/booking.py`, สร้างรหัสล็อกเป็นช่วง, pydantic schema, auth helper |
-| Unit + AWS จำลอง | pytest + **moto** (`@mock_aws`) | handler ทั้งตัวกับ DynamoDB/S3 จำลอง รวมถึง conditional write และ transaction ที่ต้องล้มเหลว |
-| Integration | pytest + `requests` กับ stack `dev` ที่ deploy แล้ว | flow ครบ: สมัคร → สร้างงาน → จอง → สลิป → อนุมัติ/ย้าย/ปฏิเสธ/หมดเวลา |
-| Race | `scripts/race_test.py` (`concurrent.futures.ThreadPoolExecutor`) | ยิง `POST /bookings` ล็อกเดียวกันพร้อมกัน **5 request** (ไม่เกิน limit ของ Lab) ต้องได้ `201` หนึ่งครั้ง และ `409` ที่เหลือ |
-| หมดเวลา | ตั้ง `slipDeadlineHours` ของงานทดสอบให้สั้น (เช่น 2 นาที) | ตรวจว่า Booking เป็น EXPIRED และล็อกกลับเป็น AVAILABLE |
+| Handler + AWS จำลอง | pytest + **moto** (`mock_aws`) | เรียก `lambda_handler` ด้วย event ของ HTTP API (`tests/apigw.py`) กับ DynamoDB/S3 จำลอง รวมถึง conditional write และ transaction ที่ต้องล้มเหลว |
+| Flow ครบในเครื่อง | pytest + moto | สร้างงาน → จอง → สลิป → อนุมัติ/ย้าย/ปฏิเสธ/ยกเลิก โดยเรียก handler ต่อกันในเทสต์เดียว |
+| จองซ้ำ | pytest + moto | จองล็อกเดียวกัน 2 ครั้ง ครั้งที่ 2 ต้องได้ `409` และจองหลายล็อกที่มีล็อกไม่ว่างต้องล้มทั้งชุด (ทดสอบ condition ไม่ใช่ความพร้อมกันจริง) |
+| หมดเวลา | pytest + moto | เรียก handler ของ `expire_booking` ตรง ๆ โดยส่งเวลาปัจจุบันเข้าไป (ห้ามเรียก `datetime.now()` ใน domain ให้รับ `now` เป็นพารามิเตอร์) |
+| Cognito / Scheduler | pytest + moto (`cognito-idp`, `scheduler`) | โค้ดเรียก API ถูกตัว ถูกพารามิเตอร์ เช่น `admin_add_user_to_group`, `create_schedule` · ตรวจสิทธิ์ของ LabRole ไม่ได้ |
 
-moto จำลอง Cognito และ Scheduler ได้บางส่วนเท่านั้น ส่วนนี้ให้ทดสอบกับ stack `dev` จริง
+### 10.2 ช่วงที่ 2 — บน AWS (สัปดาห์ 11)
+| เรื่อง | ทำไมต้องทดสอบบน AWS |
+|---|---|
+| Integration test ด้วย `requests` กับ resource ชุด `dev` | flow ครบผ่าน API Gateway + JWT จริง และตรวจว่าตั้งค่าใน Console ตรงกับโค้ด (ชื่อตาราง, env, route, authorizer) |
+| `scripts/race_test.py` ยิง `POST /bookings` ล็อกเดียวกันพร้อมกัน **5 request** | ความพร้อมกันจริงของ DynamoDB ต้องได้ `201` × 1, `409` × 4 |
+| Lambda เรียก `scheduler.create_schedule` ด้วย LabRole | ต้องใช้ `iam:PassRole` ยังไม่เคยทดสอบ (ข้อ 13) |
+| หมดเวลาจริงด้วย `slipDeadlineHours` สั้น (เช่น 2 นาที) | Scheduler ยิงจริงแล้ว Booking เป็น EXPIRED |
+| PostConfirmation trigger และรูปแบบ `cognito:groups` ใน claims | moto ไม่เรียก trigger และรูปแบบ claims ของ HTTP API ต้องดูของจริง |
+| อัปโหลดสลิปจากเบราว์เซอร์ตรงไป S3 | CORS ของ bucket |
 
 โครงของเทสต์ (`tests/`):
-- fixture `aws` ใน `conftest.py` **สร้างตารางใน moto จาก `template.yaml` โดยตรง** (key + GSI) แก้ตารางที่ template ที่เดียว เทสต์ก็ตามไปเอง
+- fixture `aws` ใน `conftest.py` สร้างตารางใน moto จาก `tests/tables.py` ถ้าแก้ key หรือ GSI ต้องแก้ 3 ที่ให้ตรงกัน: หัวข้อ 4, `tests/tables.py` และตารางใน Console (ข้อ 3.1)
 - `apigw.py` มี `http_event(method, path, body, claims)` สร้าง event ของ HTTP API พร้อม JWT claims และ `FakeLambdaContext`
-- `test_template.py` กันไม่ให้ template หลุดกฎของ Lab (ไม่มี `AWS::IAM::*`, ทุก Function ใช้ LabRole, ไม่มี `Policies`, ไม่มี `Role` ใน Globals)
 
 ---
 
-## 11. การ Deploy ใน Learner Lab
+## 11. การพัฒนาในเครื่อง และการ Deploy ใน Learner Lab
 
-ต้องมี Python 3.13, AWS CLI, SAM CLI (ไม่ต้องใช้ Docker เพราะ dependency ที่ bundle เองเป็น pure Python)
+### 11.1 ในเครื่อง (ช่วงที่ 1 ใช้แค่ส่วนนี้)
+ต้องมี Python 3.13 เท่านั้น
 
 > ใช้ Python **3.13** ทำ venv เท่านั้น เวอร์ชันใหม่กว่า (เช่น 3.15) ยังไม่มี wheel ของ pyyaml / pydantic-core ทำให้ `pip install` ล้มบน Windows · ติดตั้งได้ด้วย `py install 3.13` แล้วสร้าง venv ด้วย `py -V:3.13 -m venv .venv`
 
 ```bash
-# ครั้งแรกในแต่ละบัญชี (หรือหลัง reset)
 cd Backend
-python -m venv .venv
+py -V:3.13 -m venv .venv         # macOS/Linux: python3.13 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
+
+# ต้องผ่านทั้ง 2 อย่างก่อน push ทุกครั้ง
 pytest
 ruff check . && ruff format --check .
-cfn-lint template.yaml           # หรือ sam validate --lint
-
-sam build
-sam deploy                       # ค่าอยู่ใน samconfig.toml แล้ว (stack bookmybooth-dev, us-east-1, Stage=dev)
-curl <ApiUrl>/health             # ต้องได้ {"status":"ok"}
-
-# ครั้งต่อไป
-sam build && sam deploy
-
-# prod / เพิ่มโดเมน Amplify
-sam build && sam deploy --config-env prod --parameter-overrides "Stage=prod AllowedOrigins=http://localhost:5173,https://main.xxxx.amplifyapp.com"
-
-# สร้างบัญชีเดโมและข้อมูลตัวอย่าง
-python scripts/seed.py --stack bookmybooth-dev
 ```
 
-- ทุก session ต้อง copy credentials ใหม่จาก **AWS Details** หรือรันใน CloudShell
-- หลัง deploy เอาค่าจาก Outputs ไปใส่ใน Amplify Hosting → Environment variables: `VITE_API_URL`, `VITE_USER_POOL_ID`, `VITE_USER_POOL_CLIENT_ID`, `VITE_REGION`
-- บัญชีหลัก (prod) ใช้ stack `bookmybooth-prod` สมาชิกคนอื่น deploy `bookmybooth-dev` ลงบัญชีตัวเอง
-- เพิ่ม `.venv/` และ `.aws-sam/` ใน `.gitignore`
+### 11.2 ขึ้น AWS (ช่วงที่ 2 สัปดาห์ 11–12 — ยังไม่ทำตอนนี้)
+1. สร้าง zip ในเครื่อง: `python scripts/build_zip.py` → ได้ `build/lambda.zip`
+2. สร้าง resource ใน Console ตามหัวข้อ 3 ตามลำดับ 3.1 → 3.5
+3. อัปโหลด `build/lambda.zip` ให้ Lambda ทั้ง 6 ตัว
+4. เปิด `<Invoke URL>/health` ต้องได้ `{"status":"ok"}`
+5. ใส่ค่าในข้อ 3.7 ให้ Amplify แล้วรัน `scripts/seed.py` เพื่อสร้างบัญชีเดโม
+
+**อัปเดตโค้ดครั้งต่อไป:** รัน `build_zip.py` ใหม่ แล้วอัปโหลด zip ให้ทุก function ที่โค้ดเปลี่ยน (ถ้าแก้ `shared/` หรือ `domain/` ต้องอัปโหลดทุกตัว)
+
+- ชุด `prod` สร้างในบัญชีหลัก ส่วนสมาชิกคนอื่นสร้างชุด `dev` ในบัญชีตัวเอง (ชื่อมี stage อยู่ ถ้าใช้บัญชีเดียวกันต้องใช้ stage ต่างกัน)
+- `scripts/seed.py` ต้องใช้ credentials ของ Lab: copy จาก **AWS Details** ทุก session หรือรันใน CloudShell
 
 ---
 
 ## 12. แผนงานรายสัปดาห์
 
-| สัปดาห์ | งาน backend | ผู้รับผิดชอบหลัก |
-|---|---|---|
-| 1–2 | ตั้งโปรเจกต์ Python + SAM + pytest/moto, ตาราง DynamoDB, bucket, HttpApi + authorizer, **spike ทดสอบ 4 เรื่องที่เสี่ยงใน Lab** (ข้อ 13) | กิตติพิชญ์ |
-| 3–4 | Cognito + post_confirmation, `shared/auth.py`, `/me`, Admin API, seed script | กิตติพิชญ์, สรวิชญ์ |
-| 5–6 | Events/Lots API, สร้างล็อกเป็นช่วง, อัปโหลดภาพผัง | สรวิชญ์ |
-| 7–8 | `POST /bookings` (transaction + quota), สลิป, Scheduler + expire_booking, fallback | ปณวัฒน์ |
-| 9 | approve / move / reject / cancel, summary | ปณวัฒน์ |
-| 10 | Notifications API และเติม notify ให้ครบทุกเหตุการณ์ | สรวิชญ์ |
-| 11 | Integration test, race test, แก้บั๊ก | ทุกคน |
-| 12 | Deploy stack prod, seed ข้อมูลเดโม, เอกสาร API | กิตติพิชญ์ |
+สัปดาห์ 1–10 เป็นงานโค้ดล้วน ("เสร็จ" = โค้ด + เทสต์ในเครื่องผ่าน + เพิ่ม route/env ที่ต้องใช้ลงหัวข้อ 3 แล้ว) ยังไม่สร้างอะไรบน AWS
+
+| สัปดาห์ | ช่วง | งาน backend | ผู้รับผิดชอบหลัก |
+|---|---|---|---|
+| 1–2 | โค้ด | ตั้งโปรเจกต์ Python + pytest/moto, `tests/tables.py`, `shared/`, `scripts/build_zip.py` ✅ · spike ใน Lab ✅ | กิตติพิชญ์ |
+| 3–4 | โค้ด | post_confirmation, `shared/auth.py`, `/me`, Admin API, `scripts/seed.py` (เขียนไว้ก่อน รันจริงสัปดาห์ 11) | กิตติพิชญ์, สรวิชญ์ |
+| 5–6 | โค้ด | Events/Lots API, สร้างล็อกเป็นช่วง, อัปโหลดภาพผัง (presigned POST ทดสอบด้วย moto) | สรวิชญ์ |
+| 7–8 | โค้ด | `POST /bookings` (transaction + quota), สลิป, `shared/scheduler.py` + expire_booking, fallback 7.6 | ปณวัฒน์ |
+| 9 | โค้ด | approve / move / reject / cancel, summary | ปณวัฒน์ |
+| 10 | โค้ด | Notifications API และเติม notify ให้ครบทุกเหตุการณ์ · เทสต์ flow ครบในเครื่อง | สรวิชญ์ |
+| 11 | AWS | **สร้าง resource ชุด `dev` ใน Console** (หัวข้อ 3) + อัปโหลด zip, ทดสอบเรื่องในข้อ 10.2, race test, เชื่อม frontend, แก้บั๊ก | ทุกคน |
+| 12 | AWS | สร้างชุด `prod`, seed ข้อมูลเดโม, เอกสาร API | กิตติพิชญ์ |
 
 ---
 
 ## 13. ความเสี่ยงที่ต้องทดสอบตั้งแต่สัปดาห์แรก (spike) — ✅ ผ่านทั้ง 4 ข้อ (2026-10-27, us-east-1)
 
 1. ✅ **EventBridge Scheduler ใช้ `LabRole` เรียก Lambda ได้** — LabRole มี `scheduler.amazonaws.com` ใน trust policy อยู่แล้ว ทดสอบด้วย `AWS::Scheduler::Schedule` แบบ `rate(1 minutes)` ที่สร้างผ่าน CloudFormation
-   - ⚠️ ยังไม่ได้ทดสอบกรณีที่ **Lambda (รันด้วย LabRole) เป็นคนเรียก `scheduler.create_schedule`** แบบ `at(...)` และส่ง `RoleArn` = LabRole ซึ่งต้องใช้สิทธิ์ `scheduler:CreateSchedule` และ `iam:PassRole` บน LabRole ทดสอบตอนทำ `shared/scheduler.py` สัปดาห์ 7 ถ้าไม่ได้ ใช้ EventBridge rule `rate(5 minutes)` ใน template กวาดหา Booking ที่หมดเวลา ร่วมกับ fallback ข้อ 7.6
+   - ⚠️ ยังไม่ได้ทดสอบกรณีที่ **Lambda (รันด้วย LabRole) เป็นคนเรียก `scheduler.create_schedule`** แบบ `at(...)` และส่ง `RoleArn` = LabRole ซึ่งต้องใช้สิทธิ์ `scheduler:CreateSchedule` และ `iam:PassRole` บน LabRole จะได้ทดสอบตอน deploy สัปดาห์ 11 ระหว่างนี้โค้ดต้องไม่พึ่ง Scheduler อย่างเดียว: ทำ fallback ข้อ 7.6 ให้ใช้ได้จริงตั้งแต่สัปดาห์ 7 ถ้าสัปดาห์ 11 พบว่าสร้าง schedule ไม่ได้ ให้สร้าง EventBridge Scheduler แบบ `rate(5 minutes)` ใน Console (role = LabRole) เรียก expire_booking ให้กวาดหา Booking ที่หมดเวลา
 2. ✅ **Cognito PostConfirmation + `admin_add_user_to_group` ผ่าน `LabRole`** — ผู้ใช้ถูกใส่ group อัตโนมัติหลัง confirm
-3. ✅ **`sam deploy` ไม่สร้าง IAM resource** — ต้องใส่ `Role:` ที่ Function ทีละตัว (ใส่ใน `Globals` ไม่ได้)
+3. ✅ **`sam deploy` ไม่สร้าง IAM resource** — ทดสอบตอนยังวางแผนใช้ SAM ตอนนี้ไม่ใช้ SAM แล้ว ข้อที่ยังใช้ได้คือ Lambda ใช้ LabRole เป็น execution role ได้
 4. ✅ **Powertools layer `:40` + pydantic import ได้** — pydantic 2.14.1 มากับ layer ไม่ต้อง bundle เอง
 
 โค้ดทดสอบอยู่ที่ `~/spike` ใน CloudShell

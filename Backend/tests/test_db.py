@@ -2,17 +2,14 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 from shared import db
+from tables import TABLES
 
 
-def test_tables_match_template(aws):
-    names = set(boto3.client("dynamodb").list_tables()["TableNames"])
-    assert names == {
-        "UsersTable",
-        "EventsTable",
-        "LotsTable",
-        "BookingsTable",
-        "NotificationsTable",
-    }
+def test_every_table_name_resolves(aws):
+    created = set(boto3.client("dynamodb").list_tables()["TableNames"])
+    for name in ("users", "events", "lots", "bookings", "notifications"):
+        assert db.table_name(name) in created
+    assert len(created) == len(TABLES)
 
 
 def test_gsi_query(aws):
