@@ -20,7 +20,7 @@ export default function BookingReasonDialog({ kind, booking, onClose, onConfirm 
       title={reject ? 'ไม่อนุมัติคำขอนี้' : 'ยกเลิกการจองนี้'}
       description={
         booking
-          ? `${booking.shopName} ล็อก ${booking.lot} ${reject ? '' : 'จะถูกยกเลิกและล็อกกลับมาว่าง '}ผู้ขายจะเห็นเหตุผลนี้ และระบบคืนเงินให้ภายใน ${POLICY.refundBusinessDays} วันทำการ`
+          ? `${booking.shopName} ล็อก ${booking.lot} ${reject ? '' : 'จะถูกยกเลิกและล็อกกลับมาว่าง '}ผู้ขายจะเห็นเหตุผลนี้ · ${POLICY.refundNote.organizer}`
           : ''
       }
       reasons={reject ? REJECT_REASONS : CANCEL_REASONS}

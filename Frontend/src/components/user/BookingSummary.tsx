@@ -53,7 +53,7 @@ export default function BookingSummary({ event, items, power = false }: BookingS
         <span className="font-semibold">ยอดชำระ</span>
         <span className="font-display text-3xl font-bold">{baht(total)}</span>
       </div>
-      <p className="text-xs text-muted mt-3 leading-relaxed">ถ้าผู้จัดงานไม่อนุมัติ ระบบคืนเงินเต็มจำนวนภายใน {POLICY.refundBusinessDays} วันทำการ</p>
+      <p className="text-xs text-muted mt-3 leading-relaxed">{POLICY.refundNote.seller}</p>
     </div>
   )
 }

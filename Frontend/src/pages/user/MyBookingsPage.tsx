@@ -100,7 +100,7 @@ export default function MyBookingsPage() {
         title={cancelFor?.lots.length && cancelFor.lots.length > 1 ? `ยกเลิกทั้งชุด ${cancelFor.lots.length} ล็อก` : 'ยกเลิกคำขอนี้'}
         message={
           cancelFor &&
-          `ล็อก ${cancelFor.lot} จะกลับไปว่างให้คนอื่นจอง${cancelFor.hasSlip ? ` และระบบจะคืนเงินให้ภายใน ${POLICY.refundBusinessDays} วันทำการ` : ''}`
+          `ล็อก ${cancelFor.lot} จะกลับไปว่างให้คนอื่นจอง${cancelFor.hasSlip ? ` · ${POLICY.refundNote.sellerCancel}` : ''}`
         }
         confirmLabel="ยกเลิกคำขอ"
         onClose={() => setCancelFor(null)}
