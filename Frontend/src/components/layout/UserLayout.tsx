@@ -7,6 +7,7 @@ import { useMyBookings } from '../../queries/bookings'
 import type { Account } from '../../types'
 import Logo from '../common/Logo'
 import AccountMenu from '../popup/AccountMenu'
+import NotificationBell from '../popup/NotificationBell'
 import OrganizerSignupButton from '../popup/OrganizerSignupButton'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -49,7 +50,10 @@ export default function UserLayout() {
               <OrganizerSignupButton className="hidden md:block whitespace-nowrap text-sm text-muted hover:text-ink underline underline-offset-4 decoration-line" />
             )}
             {account ? (
-              <AccountMenu />
+              <div className="flex items-center gap-1 sm:gap-2">
+                <NotificationBell />
+                <AccountMenu />
+              </div>
             ) : (
               <div className="flex items-center gap-1 sm:gap-2">
                 <button

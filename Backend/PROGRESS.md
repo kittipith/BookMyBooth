@@ -212,7 +212,8 @@
 - [x] `NotificationType` + ไอคอน: `booking_slip_uploaded`, `booking_expired`, `account_unsuspended` (F23, F30)
 - [x] `NotificationWatcher` (ใน `App`) poll ตลอดที่ล็อกอินอยู่ รวมหน้ารออนุมัติที่ไม่มีกระดิ่ง · ได้ `organizer_approved` / `organizer_rejected` / `account_unsuspended` ใหม่ → โหลด `/me` ใหม่ → AuthProvider ขอ token ใหม่เมื่อสถานะเปลี่ยน (F7)
 - [x] `npm run build` + `lint` ผ่าน · เปิดหน้า Admin ทั้ง 3 หน้ากับ API จำลองแล้วแสดงข้อมูลได้ ไม่มี error ใหม่ · กระดิ่ง poll `/notifications` ได้ 200
-- [ ] ยังไม่ได้กดทดสอบ flow ตามหน้าจอ (ผู้ใช้ทดสอบเอง): อนุมัติ/ไม่อนุมัติผู้จัดงาน, ระงับ/ยกเลิกระงับ, ผู้จัดงานรออนุมัติเห็นผลภายใน 30 วิ, กดแจ้งเตือนแล้วไปหน้าที่ถูก, อ่านทั้งหมด
+- [x] ทดสอบ flow ในเบราว์เซอร์กับ API จำลอง (2026-10-28): อนุมัติ org2 / ไม่อนุมัติ org3 พร้อมเหตุผล · ระงับผู้ขาย → `/me` 403 + ล็อกอินขึ้น "บัญชีนี้ถูกระงับ" → ยกเลิกระงับ → ล็อกอินได้ + แจ้งเตือน `account_unsuspended` · ผู้จัดงานรออนุมัติเห็นแดชบอร์ดเองใน 24 วิ · กดแจ้งเตือน `organizer_approved` → `/organizer` และถูกติ๊กอ่าน · Admin "อ่านทั้งหมด" → `unreadCount` 0 · หน้างานทั้งหมดแสดงการจองที่ใช้งาน/ยอดอนุมัติตรงกับ `/summary`
+- [x] **ผู้ขายไม่มีกระดิ่งแจ้งเตือน**: `UserLayout` ไม่มี `NotificationBell` (มีแค่ `DashboardLayout` ของผู้จัดงาน/Admin) → เพิ่มแล้ว (F34)
 
 ### เฟส 8 ✅
 - [x] เอา `AppProvider` ออกจาก `App.tsx` · `AuthProvider` เลิกใช้ `syncProfile`/`setDraft` ของ store เดิม · `UserLayout` นับป้าย "การจองของฉัน" จาก `GET /bookings/me` (รอแนบสลิป + รออนุมัติ)
@@ -221,7 +222,8 @@
 - [x] `types.ts` ตัด `MarketEvent`, `EventRecord`, `EventDay(Record)`, `Booking`, `Organizer`, `BookingDraft` และฟิลด์จำลองใน `Account` (`passwordHash`, `emailVerified`, `shopId`, `organizerId`) · `data/settings.ts` ตัด `FEES`, `WEEKEND_SURCHARGE`, `chartDays`
 - [x] `main.tsx` ลบ key `bookmybooth-data-v1` / `bookmybooth-session` ที่ค้างใน `localStorage`
 - [x] `npm run build` + `lint` ผ่าน · ไม่มี import จาก `data/*` ที่เป็นข้อมูลจำลองเหลือ · เปิดหน้า Admin และการจองของผู้ขายกับ API จำลองได้
-- [ ] ยังไม่ได้ไล่ checklist INTEGRATION-PLAN หัวข้อ 6 ครบกับ API จำลอง (ผู้ใช้ทดสอบเอง)
+- [x] ไล่ checklist INTEGRATION-PLAN หัวข้อ 6 ครบ 11 ข้อกับ API จำลอง (2026-10-28) ผ่านทุกข้อ · หมายเหตุ: ข้อ 8 กรณีก่อนวันงานทดสอบผ่าน API (`409 NOT_EVENT_DAY`) · ข้อ 5 ทดสอบ PNG + PDF + ไฟล์ 6 MB ยังไม่ได้ลอง JPG · การจองชน (ข้อ 4) ใช้การจองผ่าน API ของผู้ขายเดโมแย่งล็อกก่อนกดส่ง
+- [ ] ไล่ checklist หัวข้อ 6 ซ้ำกับ AWS (เฟส 9)
 
 ## สัปดาห์ 11 — ขึ้น AWS และทดสอบ (PLAN 3, 10.2, 11.2)
 > ทำตาม [AWS-SETUP.md](../AWS-SETUP.md) ทีละข้อ
@@ -322,7 +324,8 @@
 | F30 | แจ้งเตือน `account_unsuspended` | ✅ |
 | F31 | ยอดเงิน = ราคาโซน (ตัดค่าไฟ/ค่าธรรมเนียม) | ✅ ฟังก์ชันคิดค่าไฟ/ค่าธรรมเนียมใน `utils/pricing.ts` ลบแล้ว (เฟส 8) |
 | F32 | บัญชีรับเงินตั้งต้นในโปรไฟล์ผู้จัดงาน | ✅ |
-| F33 | หน้า Admin ผู้ใช้/สรุปจาก `GET /admin/users`, `GET /admin/events` | ⬜ |
+| F33 | หน้า Admin ผู้ใช้/สรุปจาก `GET /admin/users`, `GET /admin/events` | ✅ ทำในเฟส 7 (`UserPage`, `OrganizerApprovalsPage`, `AllEventsPage`) |
+| F34 | กระดิ่งแจ้งเตือนของผู้ขายใน `UserLayout` | ✅ ข้าง `AccountMenu` เมื่อล็อกอิน · ทดสอบกดแจ้งเตือน `booking_moved` → `/my-bookings` + มือถือ 375 px ไม่ล้นจอ |
 
 ---
 
@@ -330,6 +333,9 @@
 
 | วันที่ | เรื่อง |
 |---|---|
+| 2026-10-28 | F34 ✅ เพิ่มกระดิ่งแจ้งเตือนฝั่งผู้ขายใน `UserLayout` · build/lint ผ่าน |
+| 2026-10-28 | ทดสอบในเบราว์เซอร์กับ API จำลอง: flow Admin เฟส 7 + checklist INTEGRATION-PLAN หัวข้อ 6 ครบ 11 ข้อ ผ่านทั้งหมด · พบผู้ขายไม่มีกระดิ่งแจ้งเตือน (`UserLayout`) |
+| 2026-10-28 | ติ๊ก F33 ✅ (ทำไปแล้วในเฟส 7 แต่ลืมอัปเดตตาราง) |
 | 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 8 เสร็จ: เอา store/ข้อมูลจำลองออกทั้งหมด (`AppProvider`, seed, `data/*` จำลอง, selectors, sha256) · ตัด type/ค่าตั้งค่าที่ไม่ใช้ · ล้าง key เดิมใน `localStorage` · build/lint ผ่าน |
 | 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 7 เสร็จ (โค้ด + build/lint + เปิดหน้าได้ ยังไม่ได้กดทดสอบ flow): หน้า Admin 3 หน้าใช้ API · กระดิ่ง poll `/notifications` · โหลด `/me` ใหม่เมื่อสถานะบัญชีเปลี่ยน · F7, F9, F18, F23, F30 ✅ |
 | 2026-10-28 | ทำ INTEGRATION-PLAN เฟส 6 เสร็จ: ตรวจการจอง (อนุมัติ/ย้าย/ไม่อนุมัติ/ยกเลิก/อนุมัติหลายรายการ) ดูสลิปจริง เช็กอินหน้างาน ภาพรวมจาก `/summary` และสถิติร้านจาก `/organizer/vendors` · แก้เวลา UTC แสดงเพี้ยน · F15, F20, F24–F28 ✅ |
