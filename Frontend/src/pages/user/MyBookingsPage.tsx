@@ -11,8 +11,8 @@ import { POLICY } from '../../data/settings'
 import { useToast } from '../../hooks/useToast'
 import { useCancelMyBooking, useMyBookings } from '../../queries/bookings'
 import { useEvents } from '../../queries/events'
-import { groupOf } from '../../services/bookings'
-import type { BookingUiStatus, SellerBooking } from '../../types'
+import { groupBookings } from '../../services/bookings'
+import type { BookingGroup, BookingUiStatus, SellerBooking } from '../../types'
 
 type Tab = 'all' | BookingUiStatus
 const TABS: Tab[] = ['all', 'awaiting_slip', 'pending', 'approved', 'rejected', 'cancelled', 'expired']
@@ -23,8 +23,8 @@ export default function MyBookingsPage() {
   const cancel = useCancelMyBooking()
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('all')
-  const [qrFor, setQrFor] = useState<SellerBooking | null>(null)
-  const [cancelFor, setCancelFor] = useState<SellerBooking | null>(null)
+  const [qrFor, setQrFor] = useState<BookingGroup | null>(null)
+  const [cancelFor, setCancelFor] = useState<BookingGroup | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
   // นับถอยหลังเวลาแนบสลิป
@@ -34,8 +34,8 @@ export default function MyBookingsPage() {
   }, [])
 
   const eventOf = (b: SellerBooking) => events.find((e) => e.id === b.eventId)
-  // งานที่ยังไม่จบขึ้นก่อน เรียงตามวันงาน แล้วต่อด้วยงานที่จบแล้ว
-  const mine = [...bookings].sort((a, b) => {
+  // 1 การ์ดต่อชุด (D7) · งานที่ยังไม่จบขึ้นก่อน เรียงตามวันงาน แล้วต่อด้วยงานที่จบแล้ว
+  const mine = groupBookings(bookings).sort((a, b) => {
     const ea = eventOf(a)
     const eb = eventOf(b)
     const endedA = ea?.status === 'ended' ? 1 : 0
@@ -74,10 +74,9 @@ export default function MyBookingsPage() {
       <div className="mt-6 space-y-5">
         {list.map((b) => (
           <BookingTicket
-            key={b.id}
+            key={b.key}
             booking={b}
             event={eventOf(b)}
-            groupLots={groupOf(bookings, b.groupId).map((g) => g.lot)}
             now={now}
             onShowQr={() => setQrFor(b)}
             onShowSlip={() => showSlip(b)}
@@ -98,7 +97,7 @@ export default function MyBookingsPage() {
       <QrDialog booking={qrFor} eventTitle={qrFor ? (eventOf(qrFor)?.title ?? qrFor.eventTitle) : undefined} onClose={() => setQrFor(null)} />
       <ConfirmDialog
         open={!!cancelFor}
-        title="ยกเลิกคำขอนี้"
+        title={cancelFor?.lots.length && cancelFor.lots.length > 1 ? `ยกเลิกทั้งชุด ${cancelFor.lots.length} ล็อก` : 'ยกเลิกคำขอนี้'}
         message={
           cancelFor &&
           `ล็อก ${cancelFor.lot} จะกลับไปว่างให้คนอื่นจอง${cancelFor.hasSlip ? ` และระบบจะคืนเงินให้ภายใน ${POLICY.refundBusinessDays} วันทำการ` : ''}`

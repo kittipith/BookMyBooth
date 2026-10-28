@@ -1,6 +1,7 @@
 import { api } from './client'
 import type {
   BookingDto,
+  BookingGroupDto,
   BookingStatusDto,
   EventDto,
   EventInputDto,
@@ -41,22 +42,25 @@ export const getEventSummary = (eventId: string, signal?: AbortSignal) =>
 export const listEventBookings = (eventId: string, status?: BookingStatusDto, signal?: AbortSignal) =>
   api.get<ItemsDto<BookingDto>>(`${eventPath(eventId)}/bookings`, { query: { status }, signal })
 
+// ทุก route ด้านล่างรับ bookingId ใดก็ได้ในชุด แล้วทำทั้งชุดใน transaction เดียว (D7)
+
 /**
- * อนุมัติการจองที่แนบสลิปแล้ว (PENDING_REVIEW) ส่ง newLotId เพื่อย้ายไปล็อกอื่นที่ว่างพร้อมอนุมัติ
- * 409: INVALID_STATUS, LOT_NOT_AVAILABLE (details.lotIds)
+ * อนุมัติทั้งชุดที่แนบสลิปแล้ว (PENDING_REVIEW) ส่ง moves {ล็อกเดิม: ล็อกใหม่} เพื่อย้ายบางล็อกไปล็อกที่ว่างพร้อมอนุมัติ
+ * 409: INVALID_STATUS, LOT_NOT_AVAILABLE (details.lotIds) · 400: UNKNOWN_LOT, DUPLICATE_LOT
  */
-export const approveBooking = (bookingId: string, newLotId?: string) =>
-  api.post<BookingDto>(`${bookingPath(bookingId)}/approve`, newLotId ? { newLotId } : {})
+export const approveBooking = (bookingId: string, moves?: Record<string, string>) =>
+  api.post<BookingGroupDto>(`${bookingPath(bookingId)}/approve`, moves ? { moves } : {})
 
-/** ไม่อนุมัติ (PENDING_REVIEW) ล็อกกลับว่าง */
-export const rejectBooking = (bookingId: string, reason: string) => api.post<BookingDto>(`${bookingPath(bookingId)}/reject`, { reason })
+/** ไม่อนุมัติทั้งชุด (PENDING_REVIEW) ล็อกกลับว่าง */
+export const rejectBooking = (bookingId: string, reason: string) =>
+  api.post<BookingGroupDto>(`${bookingPath(bookingId)}/reject`, { reason })
 
-/** ยกเลิกหลังอนุมัติ ล็อกกลับว่าง */
+/** ยกเลิกทั้งชุดหลังอนุมัติ ล็อกกลับว่าง */
 export const cancelBookingAsOrganizer = (bookingId: string, reason: string) =>
-  api.post<BookingDto>(`${bookingPath(bookingId)}/cancel`, { reason })
+  api.post<BookingGroupDto>(`${bookingPath(bookingId)}/cancel`, { reason })
 
-/** เช็กอินหน้างาน (เรียกซ้ำได้ผลเดิม) · 409 NOT_EVENT_DAY, INVALID_STATUS */
-export const checkInBooking = (bookingId: string) => api.post<BookingDto>(`${bookingPath(bookingId)}/check-in`)
+/** เช็กอินหน้างานทั้งชุด (เรียกซ้ำได้ผลเดิม) · 409 NOT_EVENT_DAY, INVALID_STATUS */
+export const checkInBooking = (bookingId: string) => api.post<BookingGroupDto>(`${bookingPath(bookingId)}/check-in`)
 
 /** สถิติร้านที่เคยได้รับอนุมัติในงานของผู้จัดงานคนนี้ */
 export const listVendors = (signal?: AbortSignal) => api.get<ItemsDto<VendorStatDto>>('/organizer/vendors', { signal })

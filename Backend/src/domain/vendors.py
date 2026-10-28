@@ -14,17 +14,20 @@ MIN_PAST_FOR_FLAG = 2
 def seller_stats(
     approved: list[dict[str, Any]], event_by_id: dict[str, dict[str, Any]], now: datetime
 ) -> dict[str, Any]:
-    """approved: การจองที่อนุมัติแล้วของร้านเดียว"""
+    """approved: การจองที่อนุมัติแล้วของร้านเดียว · นับครั้งตามชุด (groupId) ไม่ใช่ตามล็อก (D7)"""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for item in approved:
+        groups.setdefault(item.get("groupId") or item["bookingId"], []).append(item)
     past = [
-        item
-        for item in approved
-        if item["eventId"] in event_by_id
-        and events.display_status(event_by_id[item["eventId"]], now) == events.ENDED
+        members
+        for members in groups.values()
+        if members[0]["eventId"] in event_by_id
+        and events.display_status(event_by_id[members[0]["eventId"]], now) == events.ENDED
     ]
-    showed = sum(1 for item in past if item.get("checkedIn"))
+    showed = sum(1 for members in past if any(item.get("checkedIn") for item in members))
     show_rate = round(showed / len(past) * 100) if past else None
     return {
-        "approved": len(approved),
+        "approved": len(groups),
         "total": sum(int(item.get("amount", 0)) for item in approved),
         "pastCount": len(past),
         "showRate": show_rate,

@@ -39,7 +39,13 @@ def book(lot_ids, as_user=SELLER):
 
 def book_with_slip(lot_id, as_user=SELLER) -> str:
     """จองแล้วแนบสลิป ได้ booking ที่ PENDING_REVIEW"""
-    booking_id = book([lot_id], as_user)[0]["bookingId"]
+    return book_group_with_slip([lot_id], as_user)[0]
+
+
+def book_group_with_slip(lot_ids, as_user=SELLER) -> list[str]:
+    """จองหลายล็อกในชุดเดียวแล้วแนบสลิปเดียว คืน bookingId ตามลำดับ lot_ids"""
+    booking_ids = [b["bookingId"] for b in book(lot_ids, as_user)]
+    booking_id = booking_ids[0]
     _, upload = call(
         lambda_handler,
         "POST",
@@ -56,7 +62,13 @@ def book_with_slip(lot_id, as_user=SELLER) -> str:
         as_user=as_user,
     )
     assert status == 200
-    return booking_id
+    return booking_ids
+
+
+def one(body):
+    """ผลของชุดที่มีล็อกเดียว"""
+    [item] = body["bookings"]
+    return item
 
 
 def approve(booking_id, body=None, as_user=ORGANIZER):
@@ -126,6 +138,7 @@ def test_approve(setup):
     status, body = approve(booking_id)
 
     assert status == 200
+    body = one(body)
     assert body["status"] == booking.APPROVED
     assert body["decidedBy"] == "o1"
     assert get_lot("e1", "A01")["status"] == "BOOKED"
@@ -154,9 +167,10 @@ def test_approve_permissions(setup):
 def test_approve_with_move(setup):
     booking_id = book_with_slip("A01")
 
-    status, body = approve(booking_id, {"newLotId": "B01"})
+    status, body = approve(booking_id, {"moves": {"A01": "B01"}})
 
     assert status == 200
+    body = one(body)
     assert body["status"] == booking.APPROVED
     assert body["lotId"] == "B01"
     assert body["amount"] == 500  # ราคาเดิมที่ผู้ขายโอนมา ไม่คิดส่วนต่าง
@@ -181,9 +195,9 @@ def test_approve_with_move(setup):
 
 def test_move_to_same_lot_is_plain_approve(setup):
     booking_id = book_with_slip("A01")
-    status, body = approve(booking_id, {"newLotId": "A01"})
+    status, body = approve(booking_id, {"moves": {"A01": "A01"}})
     assert status == 200
-    assert body["moves"] == []
+    assert one(body)["moves"] == []
     assert last_notice("s1")["type"] == "booking_approved"
 
 
@@ -191,7 +205,7 @@ def test_move_to_taken_or_unknown_lot(setup):
     booking_id = book_with_slip("A01")
     book(["B01"], OTHER_SELLER)
 
-    status, body = approve(booking_id, {"newLotId": "B01"})
+    status, body = approve(booking_id, {"moves": {"A01": "B01"}})
     assert status == 409
     assert body["error"] == {
         "code": "LOT_NOT_AVAILABLE",
@@ -201,7 +215,11 @@ def test_move_to_taken_or_unknown_lot(setup):
     assert booking_ops.get(booking_id)["status"] == booking.PENDING_REVIEW
     assert get_lot("e1", "A01")["status"] == "HELD"
 
-    status, body = approve(booking_id, {"newLotId": "Z99"})
+    status, body = approve(booking_id, {"moves": {"A01": "Z99"}})
+    assert status == 400
+    assert body["error"]["code"] == "UNKNOWN_LOT"
+
+    status, body = approve(booking_id, {"moves": {"A02": "B01"}})  # ล็อกที่ไม่อยู่ในชุด
     assert status == 400
     assert body["error"]["code"] == "UNKNOWN_LOT"
 
@@ -211,10 +229,10 @@ def test_move_to_lot_whose_hold_expired(setup):
     book(["B01"], OTHER_SELLER)  # ถือไว้แต่ไม่แนบสลิป
     setup.advance(minutes=61)
 
-    status, body = approve(booking_id, {"newLotId": "B01"})
+    status, body = approve(booking_id, {"moves": {"A01": "B01"}})
 
     assert status == 200
-    assert body["lotId"] == "B01"
+    assert one(body)["lotId"] == "B01"
 
 
 def test_approved_counts_in_summary(setup):
@@ -238,6 +256,7 @@ def test_reject(setup):
     status, body = call(lambda_handler, "POST", path, {"reason": "ยอดเงินไม่ตรง"}, as_user=ORGANIZER)
 
     assert status == 200
+    body = one(body)
     assert body["status"] == booking.REJECTED
     assert body["reason"] == "ยอดเงินไม่ตรง"
     assert body["decidedBy"] == "o1"
@@ -273,6 +292,7 @@ def test_organizer_cancels_approved(setup):
     status, body = call(lambda_handler, "POST", path, {"reason": "ร้านไม่มาตามนัด"}, as_user=ORGANIZER)
 
     assert status == 200
+    body = one(body)
     assert body["status"] == booking.CANCELLED
     assert body["reason"] == "ร้านไม่มาตามนัด"
     assert get_lot("e1", "A01")["status"] == "AVAILABLE"
@@ -314,6 +334,7 @@ def test_check_in_on_event_day(setup):
     assert call(lambda_handler, "POST", path, as_user=OTHER_ORGANIZER)[0] == 403
     status, body = call(lambda_handler, "POST", path, as_user=ORGANIZER)
     assert status == 200
+    body = one(body)
     assert body["checkedIn"] is True
     assert body["checkedInBy"] == "o1"
 
@@ -321,7 +342,7 @@ def test_check_in_on_event_day(setup):
     setup.advance(minutes=5)
     status, body = call(lambda_handler, "POST", path, as_user=ORGANIZER)
     assert status == 200
-    assert body["checkedInAt"] == first_time
+    assert one(body)["checkedInAt"] == first_time
 
 
 def test_check_in_requires_approval(setup):
@@ -383,3 +404,110 @@ def test_vendor_stats(setup):
 
     status, body = call(lambda_handler, "GET", "/organizer/vendors", as_user=OTHER_ORGANIZER)
     assert body == {"items": []}
+
+
+# ---------- ทั้งชุด (D7) ----------
+
+
+def test_approve_group_with_partial_move(setup):
+    _, a02 = book_group_with_slip(["A01", "A02"])
+
+    status, body = approve(a02, {"moves": {"A02": "B01"}})  # เรียกผ่าน booking ใดก็ได้ในชุด
+
+    assert status == 200
+    assert {b["lotId"] for b in body["bookings"]} == {"A01", "B01"}
+    assert {b["status"] for b in body["bookings"]} == {booking.APPROVED}
+    assert get_lot("e1", "A01")["status"] == "BOOKED"
+    assert get_lot("e1", "A02")["status"] == "AVAILABLE"
+    assert get_lot("e1", "B01")["bookingId"] == a02
+    assert quota("s1") == 2
+    assert last_notice("s1")["message"] == (
+        "ผู้จัดงานย้ายการจองของคุณจากล็อก A02 ไปล็อก B01 ในตลาดนัดทดสอบ และอนุมัติแล้ว"
+    )
+
+
+def test_approve_group_notifies_once(setup):
+    a01, _ = book_group_with_slip(["A01", "A02"])
+    assert approve(a01)[0] == 200
+    approved = [n["message"] for n in notifications_of("s1") if n["type"] == "booking_approved"]
+    assert approved == ["การจองล็อก A01, A02 ในตลาดนัดทดสอบ ได้รับอนุมัติแล้ว"]
+
+
+def test_move_two_lots_to_same_target(setup):
+    a01, _ = book_group_with_slip(["A01", "A02"])
+    status, body = approve(a01, {"moves": {"A01": "B01", "A02": "B01"}})
+    assert status == 400
+    assert body["error"]["code"] == "DUPLICATE_LOT"
+
+
+def test_reject_group_releases_all(setup):
+    a01, _ = book_group_with_slip(["A01", "A02"])
+    status, body = call(
+        lambda_handler,
+        "POST",
+        f"/bookings/{a01}/reject",
+        {"reason": "สลิปไม่ถูกต้อง"},
+        as_user=ORGANIZER,
+    )
+    assert status == 200
+    assert {b["status"] for b in body["bookings"]} == {booking.REJECTED}
+    assert get_lot("e1", "A01")["status"] == get_lot("e1", "A02")["status"] == "AVAILABLE"
+    assert quota("s1") == 0
+    assert last_notice("s1")["message"] == (
+        "คำขอจองล็อก A01, A02 ในตลาดนัดทดสอบ ไม่ได้รับอนุมัติ: สลิปไม่ถูกต้อง"
+    )
+
+
+def test_seller_cancels_whole_group(setup):
+    a01, a02 = [b["bookingId"] for b in book(["A01", "A02"])]
+    status, body = call(lambda_handler, "POST", f"/bookings/{a02}/cancel", as_user=SELLER)
+    assert status == 200
+    assert {b["status"] for b in body["bookings"]} == {booking.CANCELLED}
+    assert booking_ops.get(a01)["status"] == booking.CANCELLED
+    assert quota("s1") == 0
+    assert last_notice("o1")["message"] == "ร้านขนม ยกเลิกคำขอจองล็อก A01, A02 ในตลาดนัดทดสอบ"
+
+
+def test_organizer_cancels_whole_group(setup):
+    a01, a02 = book_group_with_slip(["A01", "A02"])
+    approve(a01)
+    status, body = call(
+        lambda_handler, "POST", f"/bookings/{a02}/cancel", {"reason": "ปรับผัง"}, as_user=ORGANIZER
+    )
+    assert status == 200
+    assert {b["status"] for b in body["bookings"]} == {booking.CANCELLED}
+    assert quota("s1") == 0
+
+
+def test_check_in_whole_group(setup):
+    a01, a02 = book_group_with_slip(["A01", "A02"])
+    approve(a01)
+    setup.advance(days=10)
+    status, body = call(lambda_handler, "POST", f"/bookings/{a02}/check-in", as_user=ORGANIZER)
+    assert status == 200
+    assert [b["checkedIn"] for b in body["bookings"]] == [True, True]
+
+
+def test_group_ignores_finished_members(setup):
+    """ชุดเก่าที่บางล็อกจบไปแล้ว (ก่อน D7) ทำได้กับล็อกที่เหลือ แต่เรียกผ่านล็อกที่จบแล้วไม่ได้"""
+    a01, a02 = book_group_with_slip(["A01", "A02"])
+    assert booking_ops.run(
+        booking.release_items(
+            booking_ops.tables(),
+            [booking_ops.get(a01)],
+            to_status=booking.REJECTED,
+            from_statuses=(booking.PENDING_REVIEW,),
+            now="2026-01-01T00:00:00.000Z",
+        )
+    )
+    assert approve(a01)[0] == 409
+    status, body = approve(a02)
+    assert status == 200
+    assert [b["lotId"] for b in body["bookings"]] == ["A02"]
+
+
+def test_vendor_stats_count_group_once(setup):
+    approve(book_group_with_slip(["A01", "A02"])[0])
+    _, body = call(lambda_handler, "GET", "/organizer/vendors", as_user=ORGANIZER)
+    [s1] = body["items"]
+    assert (s1["approved"], s1["total"]) == (1, 1000)

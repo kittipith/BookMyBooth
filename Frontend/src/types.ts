@@ -109,6 +109,19 @@ export interface OrganizerBooking extends SellerBooking {
   checkedInAt?: string
 }
 
+/**
+ * การจองหนึ่งชุด = ล็อกที่จองพร้อมกัน (groupId) อนุมัติ ไม่อนุมัติ ยกเลิก และเช็กอินทั้งชุด (D7)
+ * ค่าที่สืบมาจาก T เป็นของรายการแรก (id ใช้เรียก API ได้ทั้งชุด และเป็น QR)
+ * ยกเว้น lot (ทุกล็อกคั่นด้วย ", "), amount (ยอดรวม), moves, hasSlip และ checkedIn ที่รวมทั้งชุด
+ */
+export type BookingGroup<T extends SellerBooking = SellerBooking> = T & {
+  /** key บนหน้าจอ (groupId + สถานะ เพราะชุดเก่าก่อน D7 อาจมีหลายสถานะ) */
+  key: string
+  /** รหัสล็อกในชุด เรียงตามรหัส */
+  lots: string[]
+  items: T[]
+}
+
 export interface LotMove {
   from: string
   to: string

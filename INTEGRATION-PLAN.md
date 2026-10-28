@@ -179,7 +179,7 @@ VITE_AUTH_MODE=dev
 > - เช็กอิน: กล่อง "เช็กอินหน้างาน" ในหน้าภาพรวม รับรหัสการจองจากเครื่องสแกน/พิมพ์ หรือค้นหาล็อก/ร้านของงานที่จัดวันนี้ · ยังไม่มีสแกนด้วยกล้อง (QR บนจอผู้ขายยังเป็นลายจำลอง)
 > - กราฟการจองรายวันในหน้าภาพรวมถูกตัด (D1) · drawer ไม่มีชื่อเจ้าของร้าน/เบอร์โทร (การจองไม่ได้เก็บ) และไม่มียอดในสลิป (ดูจากรูปสลิปจริงแทน)
 > - `dateTimeLabel` แปลงเวลา UTC จาก backend เป็นเวลาเครื่องแล้ว
-- `BookingsPage`, `PendingQueue`, `SlipCard`, `useBookingDecisions` → `GET /events/{id}/bookings?status=` · อนุมัติ `POST .../approve {newLotId?}` · ปฏิเสธ `POST .../reject {reason}` · ยกเลิกหลังอนุมัติ `POST .../cancel {reason}` (`BookingReasonDialog` เดิม)
+- `BookingsPage`, `PendingQueue`, `SlipCard`, `useBookingDecisions` → `GET /events/{id}/bookings?status=` · อนุมัติ `POST .../approve {moves?}` (ทั้งชุด D7) · ปฏิเสธ `POST .../reject {reason}` · ยกเลิกหลังอนุมัติ `POST .../cancel {reason}` (`BookingReasonDialog` เดิม)
 - เช็กอิน: `QrDialog` / `QrCode` ของผู้ขายสร้าง QR จาก `bookingId` · ฝั่งผู้จัดงานสแกนหรือพิมพ์รหัส → `POST /bookings/{id}/check-in` (`409 NOT_EVENT_DAY`) (F27)
 - `OverviewPage`, `ZoneFillBars`, `FloorMiniMap` → `GET /events/{id}/summary` + `/lots` (F15) · `VendorsPage` → `GET /organizer/vendors` (F28)
 - **เสร็จเมื่อ:** ผู้จัดงานอนุมัติ (ย้ายล็อก 1 รายการ) ปฏิเสธ เช็กอิน และเห็นยอดสรุปตรงกับที่จอง

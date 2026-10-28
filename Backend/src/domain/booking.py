@@ -26,6 +26,8 @@ STATUSES = (PENDING_PAYMENT, PENDING_REVIEW, APPROVED, REJECTED, CANCELLED, EXPI
 SELLER_CANCELLABLE = (PENDING_PAYMENT, PENDING_REVIEW)
 # ผู้จัดงานยกเลิกได้หลังอนุมัติแล้ว (ก่อนอนุมัติให้ใช้ปฏิเสธ)
 ORGANIZER_CANCELLABLE = (APPROVED,)
+# จบแล้ว ไม่นับเป็นสมาชิกของชุดที่ยังดำเนินการอยู่
+FINAL = (REJECTED, CANCELLED, EXPIRED)
 
 _serialize = TypeSerializer().serialize
 
@@ -189,17 +191,30 @@ def slip_items(
 
 def approve_items(
     tables: Tables,
-    booking: dict[str, Any],
+    bookings: list[dict[str, Any]],
     *,
     actor: str,
     now: str,
-    new_lot_id: str | None = None,
+    moves: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    """อนุมัติ PENDING_REVIEW → APPROVED (ข้อ 7.3)
+    """อนุมัติทั้งชุด PENDING_REVIEW → APPROVED ใน transaction เดียว (ข้อ 7.3, D7)
 
-    ไม่ย้าย: ล็อก HELD → BOOKED · ย้าย: ล็อกเดิมกลับเป็นว่าง ล็อกใหม่ AVAILABLE → BOOKED
-    amount คงเดิม (ไม่คิดส่วนต่างราคา) โควตาไม่เปลี่ยนเพราะยังเป็น 1 ล็อก
+    moves: {ล็อกเดิม: ล็อกใหม่} ย้ายบางล็อกพร้อมอนุมัติ ล็อกที่ไม่ย้าย HELD → BOOKED
+    ล็อกที่ย้าย: ล็อกเดิมกลับเป็นว่าง ล็อกใหม่ AVAILABLE → BOOKED
+    amount คงเดิม (ไม่คิดส่วนต่างราคา) โควตาไม่เปลี่ยนเพราะจำนวนล็อกเท่าเดิม
     """
+    moves = moves or {}
+    items: list[dict[str, Any]] = []
+    for booking in bookings:
+        items += _approve_one(
+            tables, booking, actor=actor, now=now, new_lot_id=moves.get(booking["lotId"])
+        )
+    return items
+
+
+def _approve_one(
+    tables: Tables, booking: dict[str, Any], *, actor: str, now: str, new_lot_id: str | None
+) -> list[dict[str, Any]]:
     move = new_lot_id is not None and new_lot_id != booking["lotId"]
     sets = [
         "#status = :approved",
@@ -292,7 +307,7 @@ def _lot_update(
 
 def release_items(
     tables: Tables,
-    booking: dict[str, Any],
+    bookings: list[dict[str, Any]],
     *,
     to_status: str,
     from_statuses: tuple[str, ...],
@@ -301,11 +316,13 @@ def release_items(
     reason: str | None = None,
     actor: str | None = None,
 ) -> list[dict[str, Any]]:
-    """ยกเลิก / ปฏิเสธ / หมดเวลา: เปลี่ยนสถานะ Booking, ปล่อยล็อกเป็น AVAILABLE, โควตา −1 (ข้อ 7.4)"""
+    """ยกเลิก / ปฏิเสธ / หมดเวลา ทั้งชุด: เปลี่ยนสถานะ Booking, ปล่อยล็อกเป็น AVAILABLE,
+    โควตา −N (ข้อ 7.4) · ทุก booking ต้องเป็นของผู้ขายคนเดียวกันในงานเดียวกัน
+    (transaction แตะ item ซ้ำไม่ได้ จึงรวมโควตาเป็น update เดียว)
+    """
     sets = ["#status = :to", "statusCreatedAt = :sca", "updatedAt = :now"]
-    values = {
+    values: dict[str, Any] = {
         "to": to_status,
-        "sca": status_created_at(to_status, booking["createdAt"]),
         "now": now,
         **{f"from{index}": status for index, status in enumerate(from_statuses)},
     }
@@ -320,39 +337,71 @@ def release_items(
     if expired_only:
         condition += " AND expiresAt <= :now"
 
+    items: list[dict[str, Any]] = []
+    for booking in bookings:
+        items.append(
+            {
+                "Update": {
+                    "TableName": tables.bookings,
+                    "Key": _key(bookingId=booking["bookingId"]),
+                    "UpdateExpression": "SET " + ", ".join(sets),
+                    "ConditionExpression": condition,
+                    "ExpressionAttributeNames": {"#status": "status"},
+                    "ExpressionAttributeValues": _values(
+                        **values, sca=status_created_at(to_status, booking["createdAt"])
+                    ),
+                }
+            }
+        )
+        items.append(
+            {
+                "Update": {
+                    "TableName": tables.lots,
+                    "Key": _key(eventId=booking["eventId"], lotId=booking["lotId"]),
+                    "UpdateExpression": "SET #status = :available, updatedAt = :now "
+                    "REMOVE bookingId, holdExpiresAt",
+                    "ConditionExpression": "bookingId = :id",
+                    "ExpressionAttributeNames": {"#status": "status"},
+                    "ExpressionAttributeValues": _values(
+                        available=lots.AVAILABLE, id=booking["bookingId"], now=now
+                    ),
+                }
+            }
+        )
+    first = bookings[0]
+    items.append(
+        {
+            "Update": {
+                "TableName": tables.lots,
+                "Key": _key(eventId=first["eventId"], lotId=quota_key(first["sellerId"])),
+                "UpdateExpression": "ADD #count :minus SET updatedAt = :now",
+                "ExpressionAttributeNames": {"#count": "count"},
+                "ExpressionAttributeValues": _values(minus=-len(bookings), now=now),
+            }
+        }
+    )
+    return items
+
+
+def check_in_items(
+    tables: Tables, bookings: list[dict[str, Any]], *, actor: str, now: str
+) -> list[dict[str, Any]]:
+    """เช็กอินทุกล็อกในชุดที่ยังไม่เช็กอิน (D5b, D7) ต้อง APPROVED อยู่"""
     return [
         {
             "Update": {
                 "TableName": tables.bookings,
                 "Key": _key(bookingId=booking["bookingId"]),
-                "UpdateExpression": "SET " + ", ".join(sets),
-                "ConditionExpression": condition,
-                "ExpressionAttributeNames": {"#status": "status"},
-                "ExpressionAttributeValues": _values(**values),
-            }
-        },
-        {
-            "Update": {
-                "TableName": tables.lots,
-                "Key": _key(eventId=booking["eventId"], lotId=booking["lotId"]),
-                "UpdateExpression": "SET #status = :available, updatedAt = :now "
-                "REMOVE bookingId, holdExpiresAt",
-                "ConditionExpression": "bookingId = :id",
+                "UpdateExpression": "SET checkedIn = :yes, checkedInAt = :now, "
+                "checkedInBy = :by, updatedAt = :now",
+                "ConditionExpression": "#status = :approved AND attribute_not_exists(checkedInAt)",
                 "ExpressionAttributeNames": {"#status": "status"},
                 "ExpressionAttributeValues": _values(
-                    available=lots.AVAILABLE, id=booking["bookingId"], now=now
+                    yes=True, now=now, by=actor, approved=APPROVED
                 ),
             }
-        },
-        {
-            "Update": {
-                "TableName": tables.lots,
-                "Key": _key(eventId=booking["eventId"], lotId=quota_key(booking["sellerId"])),
-                "UpdateExpression": "ADD #count :minus SET updatedAt = :now",
-                "ExpressionAttributeNames": {"#count": "count"},
-                "ExpressionAttributeValues": _values(minus=-1, now=now),
-            }
-        },
+        }
+        for booking in bookings
     ]
 
 

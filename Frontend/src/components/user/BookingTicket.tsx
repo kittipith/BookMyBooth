@@ -1,33 +1,33 @@
 import { Link } from 'react-router'
 import { countdownLabel, secondsLeft } from '../../services/bookings'
-import type { PublicEvent, SellerBooking } from '../../types'
+import type { BookingGroup, PublicEvent } from '../../types'
 import { baht, rangeLabel } from '../../utils/format'
 import { BookingStatusBadge } from '../common/StatusBadge'
 
 interface BookingTicketProps {
-  booking: SellerBooking
+  /** การจองทั้งชุด (ล็อกที่จองพร้อมกัน สลิปเดียว) ยกเลิกได้ทั้งชุดเท่านั้น (D7) */
+  booking: BookingGroup
   /** undefined = โหลดข้อมูลงานไม่ได้ (แสดงชื่องานจากการจองแทน) */
   event?: PublicEvent
-  /** ล็อกอื่นที่จองพร้อมกัน (สลิปเดียวกัน) */
-  groupLots: string[]
   now: number
   onShowQr: () => void
   onShowSlip: () => void
   onCancel: () => void
 }
 
-/** การจองหนึ่งล็อกในรูปแบบตั๋ว มีส่วนต้นขั้วด้านขวา */
-export default function BookingTicket({ booking, event, groupLots, now, onShowQr, onShowSlip, onCancel }: BookingTicketProps) {
+/** การจองหนึ่งชุดในรูปแบบตั๋ว มีส่วนต้นขั้วด้านขวา */
+export default function BookingTicket({ booking, event, now, onShowQr, onShowSlip, onCancel }: BookingTicketProps) {
   const faded = booking.status === 'cancelled' || booking.status === 'expired'
   const ended = event?.status === 'ended'
-  const others = groupLots.filter((l) => l !== booking.lot)
+  const many = booking.lots.length > 1
   const cancellable = booking.status === 'awaiting_slip' || booking.status === 'pending'
 
   return (
     <article className={`ticket grid sm:grid-cols-[1fr_210px] bg-surface border border-line rounded-2xl ${faded ? 'opacity-60' : ''}`}>
       <div className="p-5 sm:p-6 flex gap-5 sm:gap-7 items-center">
-        <div className={`font-display text-5xl sm:text-6xl font-bold leading-none ${booking.status === 'approved' ? 'text-cobalt' : ''}`}>
+        <div className={`shrink-0 font-display font-bold leading-none ${many ? 'text-3xl sm:text-4xl max-w-40' : 'text-5xl sm:text-6xl'} ${booking.status === 'approved' ? 'text-cobalt' : ''}`}>
           {booking.lot}
+          {many && <p className="mt-2 font-sans text-xs font-normal text-muted">{booking.lots.length} ล็อก · สลิปเดียว</p>}
         </div>
         <div className="min-w-0">
           <h2 className="font-display text-lg font-semibold leading-snug">{event?.title ?? booking.eventTitle}</h2>
@@ -39,9 +39,8 @@ export default function BookingTicket({ booking, event, groupLots, now, onShowQr
               </p>
             </>
           )}
-          {others.length > 0 && <p className="text-xs text-muted mt-1">จองพร้อมกับ {others.join(', ')} (สลิปเดียวกัน)</p>}
           {booking.moves.length > 0 && (
-            <p className="text-sm mt-2 text-cobalt">ผู้จัดงานย้ายจากล็อก {booking.moves.map((m) => m.from).join(' → ')}</p>
+            <p className="text-sm mt-2 text-cobalt">ผู้จัดงานย้ายล็อก {booking.moves.map((m) => `${m.from} → ${m.to}`).join(', ')}</p>
           )}
           {booking.status === 'rejected' && booking.reason && <p className="text-sm mt-2 text-danger">เหตุผลจากผู้จัดงาน: {booking.reason}</p>}
           {booking.status === 'cancelled' && booking.reason && <p className="text-sm mt-2 text-muted">{booking.reason}</p>}
@@ -77,7 +76,7 @@ export default function BookingTicket({ booking, event, groupLots, now, onShowQr
           )}
           {cancellable && (
             <button type="button" onClick={onCancel} className="text-sm text-danger underline underline-offset-4">
-              ยกเลิกคำขอ
+              {many ? 'ยกเลิกทั้งชุด' : 'ยกเลิกคำขอ'}
             </button>
           )}
           {(booking.status === 'rejected' || booking.status === 'cancelled' || booking.status === 'expired') && event?.status === 'open' && (

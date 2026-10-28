@@ -32,8 +32,10 @@ def booking_approved(lot: str, event: str) -> str:
     return f"การจองล็อก {lot} ใน{event} ได้รับอนุมัติแล้ว"
 
 
-def booking_moved(from_lot: str, to_lot: str, event: str) -> str:
-    return f"ผู้จัดงานย้ายการจองของคุณจากล็อก {from_lot} ไปล็อก {to_lot} ใน{event} และอนุมัติแล้ว"
+def booking_moved(moves: dict[str, str], event: str) -> str:
+    """moves: {ล็อกเดิม: ล็อกใหม่} ของล็อกที่ย้ายในชุด"""
+    moved = ", ".join(f"ล็อก {old} ไปล็อก {new}" for old, new in sorted(moves.items()))
+    return f"ผู้จัดงานย้ายการจองของคุณจาก{moved} ใน{event} และอนุมัติแล้ว"
 
 
 def booking_rejected(lot: str, event: str, reason: str) -> str:

@@ -272,9 +272,34 @@ def test_expire_by_schedule(setup):
     assert get_lot("e1", "A01")["status"] == "AVAILABLE"
     assert "bookingId" not in get_lot("e1", "A01")
     assert quota("s1") == 0
-    assert {n["type"] for n in notifications_of("s1")} == {"booking_expired"}
+    # หมดเวลาทั้งชุดใน transaction เดียว แจ้งเตือนครั้งเดียว (D7)
+    [notice] = notifications_of("s1")
+    assert notice["type"] == "booking_expired"
+    assert notice["message"].startswith("การจองล็อก A01, B01 ใน")
 
     assert expire_run({"bookingIds": ids}) == {"expired": []}  # รันซ้ำไม่มีผล
+
+
+def test_fallback_expires_whole_group_once(setup):
+    put_open_event(slip_minutes=60)
+    ids = [b["bookingId"] for b in booked(["A01", "A02"])["bookings"]]
+    setup.advance(minutes=61)
+
+    status, body = call(lambda_handler, "GET", "/bookings/me", as_user=SELLER)
+
+    assert status == 200
+    assert {b["status"] for b in body["items"]} == {booking.EXPIRED}
+    assert {booking_ops.get(i)["status"] for i in ids} == {booking.EXPIRED}
+    assert quota("s1") == 0
+    assert len(notifications_of("s1")) == 1
+
+
+def test_sweep_expires_group_once(setup):
+    put_open_event(slip_minutes=60)
+    ids = [b["bookingId"] for b in booked(["A01", "A02"])["bookings"]]
+    setup.advance(minutes=61)
+    assert sorted(expire_run({})["expired"]) == sorted(ids)
+    assert len(notifications_of("s1")) == 1
 
 
 def test_expire_does_nothing_after_slip(setup):
@@ -371,7 +396,7 @@ def test_seller_cancels(setup):
     status, body = call(lambda_handler, "POST", path, as_user=SELLER)
 
     assert status == 200
-    assert body["status"] == booking.CANCELLED
+    assert [b["status"] for b in body["bookings"]] == [booking.CANCELLED]
     assert get_lot("e1", "A01")["status"] == "AVAILABLE"
     assert quota("s1") == 0
     assert notifications_of("o1")[-1]["type"] == "booking_cancelled"

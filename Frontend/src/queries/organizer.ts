@@ -15,6 +15,7 @@ import {
   syncLots,
   updateEvent,
 } from '../api/organizer'
+import { groupBookings } from '../services/bookings'
 import type { OrganizerBooking, PublicEvent, Zone } from '../types'
 import { queryKeys } from './queryKeys'
 
@@ -112,7 +113,7 @@ export function useCloseEvent() {
 export const bookableEventIds = (events: PublicEvent[]) => events.filter((e) => e.publishStatus !== 'draft').map((e) => e.id)
 
 /**
- * การจองทุกงานของผู้จัดงาน (API ให้ทีละงาน) ใหม่สุดก่อน
+ * การจองทุกงานของผู้จัดงาน (API ให้ทีละงาน) รวมเป็นชุดแล้ว (D7) ใหม่สุดก่อน
  * isPending = ยังโหลดงานหรือการจองไม่ครบ
  */
 export function useOrganizerBookings() {
@@ -124,7 +125,7 @@ export function useOrganizerBookings() {
       queryFn: async ({ signal }: { signal: AbortSignal }) => (await listEventBookings(id, undefined, signal)).items.map(organizerBookingFromDto),
     })),
     combine: (results) => ({
-      data: results.flatMap((r) => r.data ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      data: groupBookings(results.flatMap((r) => r.data ?? []).sort((a, b) => b.createdAt.localeCompare(a.createdAt))),
       isPending: results.some((r) => r.isPending),
     }),
   })
@@ -153,7 +154,7 @@ type BookingRef = Pick<OrganizerBooking, 'id' | 'eventId'>
 export function useApproveBooking() {
   const refresh = useRefreshBookings()
   return useMutation({
-    mutationFn: ({ booking, moveTo }: { booking: BookingRef; moveTo?: string }) => approveBooking(booking.id, moveTo),
+    mutationFn: ({ booking, moves }: { booking: BookingRef; moves?: Record<string, string> }) => approveBooking(booking.id, moves),
     onSettled: (_data, _error, { booking }) => refresh(booking.eventId),
     // useBookingDecisions แจ้ง error เอง (อนุมัติหลายรายการสรุปครั้งเดียว)
     meta: { silentError: true },
@@ -180,12 +181,12 @@ export function useCancelBookingAsOrganizer() {
   })
 }
 
-/** เช็กอินด้วยรหัสการจอง (จาก QR ของผู้ขาย) ไม่ต้องรู้ eventId ล่วงหน้า · ผู้เรียกแสดง error เอง */
+/** เช็กอินทั้งชุดด้วยรหัสการจอง (จาก QR ของผู้ขาย) ไม่ต้องรู้ eventId ล่วงหน้า · ผู้เรียกแสดง error เอง */
 export function useCheckIn() {
   const refresh = useRefreshBookings()
   return useMutation({
     mutationFn: (bookingId: string) => checkInBooking(bookingId),
-    onSuccess: (booking) => refresh(booking.eventId),
+    onSuccess: (group) => refresh(group.bookings[0].eventId),
     meta: { silentError: true },
   })
 }

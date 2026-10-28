@@ -4,6 +4,7 @@ import { ROLE_HOME } from '../../data/options'
 import { SITE } from '../../data/settings'
 import { useAuth } from '../../hooks/useAuth'
 import { useMyBookings } from '../../queries/bookings'
+import { groupBookings } from '../../services/bookings'
 import type { Account } from '../../types'
 import Logo from '../common/Logo'
 import AccountMenu from '../popup/AccountMenu'
@@ -17,8 +18,8 @@ export default function UserLayout() {
   const navigate = useNavigate()
   const { account, openLogin } = useAuth()
   const { data: myBookings = [] } = useMyBookings()
-  // รอแนบสลิป + รอผู้จัดงานตรวจ
-  const pending = myBookings.filter((b) => b.status === 'awaiting_slip' || b.status === 'pending').length
+  // รอแนบสลิป + รอผู้จัดงานตรวจ นับเป็นชุด
+  const pending = groupBookings(myBookings).filter((b) => b.status === 'awaiting_slip' || b.status === 'pending').length
   const nav = SELLER_NAV.filter((item) => !item.role || item.role === account?.role)
   // ผู้จัดงานและผู้ดูแลระบบที่เข้าสู่ระบบจากหน้านี้ พาไปหน้าของตัวเองเลย
   const goToRoleHome = (a: Account) => a.role !== 'seller' && navigate(ROLE_HOME[a.role])

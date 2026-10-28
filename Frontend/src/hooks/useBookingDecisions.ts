@@ -3,7 +3,7 @@ import { useApproveBooking, useCancelBookingAsOrganizer, useRejectBooking } from
 import type { OrganizerBooking } from '../types'
 import { useToast } from './useToast'
 
-/** อนุมัติ ย้ายล็อก ไม่อนุมัติ และยกเลิกการจองของผู้จัดงาน พร้อมแจ้งผลหรือ error ให้เห็น */
+/** อนุมัติ ย้ายล็อก ไม่อนุมัติ และยกเลิกการจองของผู้จัดงานทั้งชุด (D7) พร้อมแจ้งผลหรือ error ให้เห็น · b.lot = ทุกล็อกในชุด */
 export function useBookingDecisions() {
   const approveMutation = useApproveBooking()
   const rejectMutation = useRejectBooking()
@@ -12,17 +12,19 @@ export function useBookingDecisions() {
 
   return {
     busy: approveMutation.isPending || rejectMutation.isPending || cancelMutation.isPending,
-    async approve(b: OrganizerBooking, moveTo?: string) {
+    /** moves {ล็อกเดิม: ล็อกใหม่} ย้ายบางล็อกพร้อมอนุมัติ */
+    async approve(b: OrganizerBooking, moves?: Record<string, string>) {
       try {
-        await approveMutation.mutateAsync({ booking: b, moveTo })
+        await approveMutation.mutateAsync({ booking: b, moves })
       } catch (e) {
         toast(errorMessage(e), 'danger')
         return false
       }
-      toast(moveTo ? `ย้าย ${b.shopName} จาก ${b.lot} ไป ${moveTo} และอนุมัติแล้ว` : `อนุมัติ ${b.shopName} ล็อก ${b.lot} แล้ว`)
+      const moved = Object.entries(moves ?? {}).map(([from, to]) => `${from} ไป ${to}`)
+      toast(moved.length ? `ย้าย ${b.shopName} จาก ${moved.join(', ')} และอนุมัติแล้ว` : `อนุมัติ ${b.shopName} ล็อก ${b.lot} แล้ว`)
       return true
     },
-    /** ทีละรายการ รายการที่สถานะเปลี่ยนไปแล้วข้ามไป แล้วสรุปผลครั้งเดียว */
+    /** ทีละชุด ชุดที่สถานะเปลี่ยนไปแล้วข้ามไป แล้วสรุปผลครั้งเดียว */
     async approveMany(list: OrganizerBooking[]) {
       let done = 0
       let lastError: unknown

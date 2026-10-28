@@ -34,5 +34,5 @@ export const attachSlip = (bookingId: string, key: string) => api.post<BookingGr
 /** ลิงก์ดูสลิป (อายุ 5 นาที) */
 export const getSlipUrl = (bookingId: string) => api.get<{ url: string }>(`${bookingPath(bookingId)}/slip`)
 
-/** ผู้ขายยกเลิกได้ก่อนอนุมัติ (ทีละล็อก) */
-export const cancelMyBooking = (bookingId: string) => api.post<BookingDto>(`${bookingPath(bookingId)}/cancel`)
+/** ผู้ขายยกเลิกได้ก่อนอนุมัติ ยกเลิกทั้งชุดของ bookingId นี้ (D7) */
+export const cancelMyBooking = (bookingId: string) => api.post<BookingGroupDto>(`${bookingPath(bookingId)}/cancel`)

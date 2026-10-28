@@ -2,6 +2,8 @@
 
 ผู้ขาย: จอง, ดูการจองของฉัน, แนบ/ดูสลิป, ยกเลิกก่อนอนุมัติ
 ผู้จัดงาน: ดูการจองของงาน, อนุมัติ (ย้ายล็อกได้), ปฏิเสธ, ยกเลิกหลังอนุมัติ, ดูสลิป
+
+อนุมัติ ปฏิเสธ ยกเลิก และเช็กอินทำทั้งชุด (groupId) เสมอ (D7)
 """
 
 from datetime import datetime, timedelta
@@ -52,13 +54,7 @@ def _own_booking(booking_id: str, user: CurrentUser) -> dict[str, Any]:
     return item
 
 
-def _group_bookings(seller_id: str, group_id: str) -> list[dict[str, Any]]:
-    items = db.query_all(
-        "bookings",
-        IndexName="bySeller",
-        KeyConditionExpression=Key("sellerId").eq(seller_id),
-    )
-    return [item for item in items if item.get("groupId") == group_id]
+_group_bookings = booking_ops.group_members
 
 
 def _slip_prefix(item: dict[str, Any]) -> str:
@@ -247,22 +243,42 @@ def get_slip(booking_id: str):
     return {"url": s3.presigned_get(item["slipKey"])}
 
 
-# ---------- ผู้จัดงานตรวจการจอง (ข้อ 7.3, 7.4) ----------
+# ---------- ตัดสินทั้งชุด (ข้อ 7.3, 7.4, D7) ----------
+# route รับ bookingId ใดก็ได้ในชุด แล้วทำกับทุกล็อกในชุดที่ยังดำเนินการอยู่ใน transaction เดียว
 
 
-def _organizer_booking(booking_id: str) -> tuple[CurrentUser, dict[str, Any]]:
+def _active_group(item: dict[str, Any], now: datetime) -> list[dict[str, Any]]:
+    """การจองในชุดเดียวกับ item ที่ยังไม่จบ (ที่เลยเวลาแนบสลิปให้หมดเวลาก่อน)"""
+    members = []
+    for member in _group_bookings(item["sellerId"], item["groupId"]):
+        booking_ops.expire(member, now)  # fallback: ที่เลยเวลาแล้วกลายเป็น EXPIRED
+        if member["status"] not in booking.FINAL:
+            members.append(member)
+    if not any(member["bookingId"] == item["bookingId"] for member in members):
+        raise conflict("สถานะการจองเปลี่ยนไปแล้ว กรุณาโหลดใหม่", "INVALID_STATUS")
+    members.sort(key=lambda member: member["lotId"])
+    return members
+
+
+def _require_status(members: list[dict[str, Any]], *statuses: str, message: str) -> None:
+    if any(member["status"] not in statuses for member in members):
+        raise conflict(message, "INVALID_STATUS")
+
+
+def _group_result(item: dict[str, Any], members: list[dict[str, Any]]) -> dict[str, Any]:
+    updated = [booking_ops.get(member["bookingId"]) for member in members]
+    return {"groupId": item["groupId"], "bookings": [booking.view(b) for b in updated]}
+
+
+def _organizer_group(booking_id: str):
     user = require_group(app, ORGANIZER_GROUP)
     item = booking_ops.get(booking_id)
     if item is None:
         raise not_found("ไม่พบการจองนี้")
     if item["organizerId"] != user.user_id:
         raise forbidden("การจองนี้ไม่ได้อยู่ในงานของคุณ")
-    return user, item
-
-
-def _require_status(item: dict[str, Any], *statuses: str, message: str) -> None:
-    if item["status"] not in statuses:
-        raise conflict(message, "INVALID_STATUS")
+    now = clock.now()
+    return user, item, _active_group(item, now), now
 
 
 def _notify_seller(item: dict[str, Any], type_: str, message: str, now: datetime) -> None:
@@ -276,11 +292,11 @@ def _notify_seller(item: dict[str, Any], type_: str, message: str, now: datetime
     )
 
 
-def _release(item, *, to_status, from_statuses, now, reason=None, actor=None) -> None:
+def _release(members, *, to_status, from_statuses, now, reason=None, actor=None) -> None:
     released = booking_ops.run(
         booking.release_items(
             booking_ops.tables(),
-            item,
+            members,
             to_status=to_status,
             from_statuses=from_statuses,
             now=clock.iso(now),
@@ -318,65 +334,80 @@ def event_bookings(event_id: str):
     return {"items": [booking.view(item) for item in items]}
 
 
+def _check_move_targets(
+    members: list[dict[str, Any]], moves: dict[str, str], now: datetime
+) -> dict[str, str]:
+    """คืน moves ที่ย้ายจริง ตรวจว่าล็อกเดิมอยู่ในชุด และล็อกปลายทางมีในงาน ไม่ซ้ำ และว่าง"""
+    own = {member["lotId"] for member in members}
+    moves = {old: new for old, new in moves.items() if old != new}
+    outside = sorted(set(moves) - own)
+    if outside:
+        raise bad_request("ล็อกนี้ไม่อยู่ในการจองชุดนี้", "UNKNOWN_LOT", {"lotIds": outside})
+    targets = list(moves.values())
+    if len(set(targets)) != len(targets):
+        raise bad_request("ย้ายหลายล็อกไปล็อกเดียวกันไม่ได้", "DUPLICATE_LOT")
+    if not targets:
+        return moves
+    found = {
+        lot["lotId"]: lot
+        for lot in db.query_all(
+            "lots", KeyConditionExpression=Key("eventId").eq(members[0]["eventId"])
+        )
+        if lots.is_lot(lot)
+    }
+    unknown = sorted(set(targets) - set(found))
+    if unknown:
+        raise bad_request("ไม่พบล็อกนี้ในงาน", "UNKNOWN_LOT", {"lotIds": unknown})
+    target_lots = [found[lot_id] for lot_id in targets]
+    booking_ops.expire_stale_lots(target_lots, now)
+    taken = [lot["lotId"] for lot in target_lots if lot["status"] != lots.AVAILABLE]
+    if taken:
+        raise conflict("ล็อกปลายทางไม่ว่าง", "LOT_NOT_AVAILABLE", {"lotIds": taken})
+    return moves
+
+
 @app.post("/bookings/<booking_id>/approve")
 def approve_booking(booking_id: str):
-    """อนุมัติ ส่ง {newLotId} มาด้วยเพื่อย้ายผู้ขายไปล็อกอื่นในงานเดียวกันพร้อมอนุมัติ"""
-    user, item = _organizer_booking(booking_id)
+    """อนุมัติทั้งชุด ส่ง {moves: {ล็อกเดิม: ล็อกใหม่}} เพื่อย้ายบางล็อกพร้อมอนุมัติ"""
+    user, item, members, now = _organizer_group(booking_id)
     body = ApproveInput.model_validate(app.current_event.json_body or {})
-    now = clock.now()
-    _require_status(item, booking.PENDING_REVIEW, message="อนุมัติได้เฉพาะการจองที่แนบสลิปแล้ว")
-
-    new_lot_id = body.new_lot_id if body.new_lot_id != item["lotId"] else None
-    if new_lot_id:
-        new_lot = (
-            db.table("lots")
-            .get_item(Key={"eventId": item["eventId"], "lotId": new_lot_id})
-            .get("Item")
-        )
-        if new_lot is None or not lots.is_lot(new_lot):
-            raise bad_request("ไม่พบล็อกนี้ในงาน", "UNKNOWN_LOT", {"lotIds": [new_lot_id]})
-        booking_ops.expire_stale_lots([new_lot], now)
-        if new_lot["status"] != lots.AVAILABLE:
-            raise conflict("ล็อกปลายทางไม่ว่าง", "LOT_NOT_AVAILABLE", {"lotIds": [new_lot_id]})
+    _require_status(members, booking.PENDING_REVIEW, message="อนุมัติได้เฉพาะการจองที่แนบสลิปแล้ว")
+    moves = _check_move_targets(members, body.moves, now)
 
     items = booking.approve_items(
-        booking_ops.tables(), item, actor=user.user_id, now=clock.iso(now), new_lot_id=new_lot_id
+        booking_ops.tables(), members, actor=user.user_id, now=clock.iso(now), moves=moves
     )
     if not booking_ops.run(items):
-        if new_lot_id:
+        if moves:
             raise conflict(
                 "สถานะการจองหรือล็อกปลายทางเปลี่ยนไปแล้ว กรุณาโหลดใหม่",
                 "LOT_NOT_AVAILABLE",
-                {"lotIds": [new_lot_id]},
+                {"lotIds": list(moves.values())},
             )
         raise conflict("สถานะการจองเปลี่ยนไปแล้ว กรุณาโหลดใหม่", "INVALID_STATUS")
 
     event_title = item.get("eventTitle", "")
-    if new_lot_id:
+    if moves:
         _notify_seller(
-            item,
-            messages.BOOKING_MOVED,
-            messages.booking_moved(item["lotId"], new_lot_id, event_title),
-            now,
+            item, messages.BOOKING_MOVED, messages.booking_moved(moves, event_title), now
         )
     else:
         _notify_seller(
             item,
             messages.BOOKING_APPROVED,
-            messages.booking_approved(item["lotId"], event_title),
+            messages.booking_approved(booking.lot_list(members), event_title),
             now,
         )
-    return booking.view(booking_ops.get(booking_id))
+    return _group_result(item, members)
 
 
 @app.post("/bookings/<booking_id>/reject")
 def reject_booking(booking_id: str):
-    user, item = _organizer_booking(booking_id)
+    user, item, members, now = _organizer_group(booking_id)
     body = ReasonInput.model_validate(app.current_event.json_body or {})
-    now = clock.now()
-    _require_status(item, booking.PENDING_REVIEW, message="ปฏิเสธได้เฉพาะการจองที่รอตรวจสอบ")
+    _require_status(members, booking.PENDING_REVIEW, message="ปฏิเสธได้เฉพาะการจองที่รอตรวจสอบ")
     _release(
-        item,
+        members,
         to_status=booking.REJECTED,
         from_statuses=(booking.PENDING_REVIEW,),
         now=now,
@@ -386,46 +417,34 @@ def reject_booking(booking_id: str):
     _notify_seller(
         item,
         messages.BOOKING_REJECTED,
-        messages.booking_rejected(item["lotId"], item.get("eventTitle", ""), body.reason),
+        messages.booking_rejected(
+            booking.lot_list(members), item.get("eventTitle", ""), body.reason
+        ),
         now,
     )
-    return booking.view(booking_ops.get(booking_id))
+    return _group_result(item, members)
 
 
 @app.post("/bookings/<booking_id>/check-in")
 def check_in(booking_id: str):
-    """ผู้จัดงานสแกน QR (= bookingId) หน้างาน (D5b) เรียกซ้ำได้ผลเดิม"""
-    user, item = _organizer_booking(booking_id)
-    _require_status(item, booking.APPROVED, message="เช็กอินได้เฉพาะการจองที่อนุมัติแล้ว")
-    if item.get("checkedIn"):
-        return booking.view(item)
+    """ผู้จัดงานสแกน QR (= bookingId ใดก็ได้ในชุด) หน้างาน เช็กอินทั้งชุด (D5b, D7) เรียกซ้ำได้ผลเดิม"""
+    user, item, members, now = _organizer_group(booking_id)
+    _require_status(members, booking.APPROVED, message="เช็กอินได้เฉพาะการจองที่อนุมัติแล้ว")
+    pending = [member for member in members if not member.get("checkedIn")]
+    if not pending:
+        return _group_result(item, members)
     event = db.table("events").get_item(Key={"eventId": item["eventId"]}).get("Item")
-    now = clock.now()
     if event is None or not events.is_event_day(event, now):
         raise conflict("เช็กอินได้เฉพาะวันที่จัดงาน", "NOT_EVENT_DAY")
-    try:
-        result = db.table("bookings").update_item(
-            Key={"bookingId": booking_id},
-            UpdateExpression="SET checkedIn = :yes, checkedInAt = :now, checkedInBy = :by, "
-            "updatedAt = :now",
-            ConditionExpression="#status = :approved AND attribute_not_exists(checkedInAt)",
-            ExpressionAttributeNames={"#status": "status"},
-            ExpressionAttributeValues={
-                ":yes": True,
-                ":now": clock.iso(now),
-                ":by": user.user_id,
-                ":approved": booking.APPROVED,
-            },
-            ReturnValues="ALL_NEW",
-        )
-    except ClientError as error:
-        if not db.is_condition_failure(error):
-            raise
-        current = booking_ops.get(booking_id)
-        if current and current.get("checkedIn"):
-            return booking.view(current)  # มีคนเช็กอินพร้อมกัน
-        raise conflict("สถานะการจองเปลี่ยนไปแล้ว กรุณาโหลดใหม่", "INVALID_STATUS") from error
-    return booking.view(result["Attributes"])
+    items = booking.check_in_items(
+        booking_ops.tables(), pending, actor=user.user_id, now=clock.iso(now)
+    )
+    if not booking_ops.run(items):
+        current = [booking_ops.get(member["bookingId"]) for member in members]
+        # มีคนเช็กอินพร้อมกันถือว่าสำเร็จ
+        if not all(b and b.get("checkedIn") for b in current):
+            raise conflict("สถานะการจองเปลี่ยนไปแล้ว กรุณาโหลดใหม่", "INVALID_STATUS")
+    return _group_result(item, members)
 
 
 @app.get("/organizer/vendors")
@@ -462,7 +481,7 @@ def organizer_vendors():
 
 @app.post("/bookings/<booking_id>/cancel")
 def cancel_booking(booking_id: str):
-    """ผู้ขายยกเลิกก่อนอนุมัติ หรือผู้จัดงานยกเลิกหลังอนุมัติ (ต้องมี {reason})"""
+    """ยกเลิกทั้งชุด: ผู้ขายก่อนอนุมัติ หรือผู้จัดงานหลังอนุมัติ (ต้องมี {reason})"""
     user = current_user(app)
     item = booking_ops.get(booking_id)
     if item is None:
@@ -476,31 +495,35 @@ def cancel_booking(booking_id: str):
 
 def _cancel_by_seller(item: dict[str, Any]):
     now = clock.now()
-    _require_status(item, *booking.SELLER_CANCELLABLE, message="ยกเลิกได้เฉพาะการจองที่ยังไม่ได้รับอนุมัติ")
-    _release(item, to_status=booking.CANCELLED, from_statuses=booking.SELLER_CANCELLABLE, now=now)
+    members = _active_group(item, now)
+    _require_status(members, *booking.SELLER_CANCELLABLE, message="ยกเลิกได้เฉพาะการจองที่ยังไม่ได้รับอนุมัติ")
+    _release(
+        members, to_status=booking.CANCELLED, from_statuses=booking.SELLER_CANCELLABLE, now=now
+    )
     notify(
         [item["organizerId"]],
         messages.BOOKING_CANCELLED,
         messages.booking_cancelled_by_seller(
-            item["shopName"], item["lotId"], item.get("eventTitle", "")
+            item["shopName"], booking.lot_list(members), item.get("eventTitle", "")
         ),
         now=now,
         bookingId=item["bookingId"],
         eventId=item["eventId"],
     )
-    return booking.view(booking_ops.get(item["bookingId"]))
+    return _group_result(item, members)
 
 
 def _cancel_by_organizer(user: CurrentUser, item: dict[str, Any]):
     body = ReasonInput.model_validate(app.current_event.json_body or {})
     now = clock.now()
+    members = _active_group(item, now)
     _require_status(
-        item,
+        members,
         *booking.ORGANIZER_CANCELLABLE,
         message="ยกเลิกได้เฉพาะการจองที่อนุมัติแล้ว การจองที่รอตรวจให้ใช้ปฏิเสธ",
     )
     _release(
-        item,
+        members,
         to_status=booking.CANCELLED,
         from_statuses=booking.ORGANIZER_CANCELLABLE,
         now=now,
@@ -511,11 +534,11 @@ def _cancel_by_organizer(user: CurrentUser, item: dict[str, Any]):
         item,
         messages.BOOKING_CANCELLED,
         messages.booking_cancelled_by_organizer(
-            item["lotId"], item.get("eventTitle", ""), body.reason
+            booking.lot_list(members), item.get("eventTitle", ""), body.reason
         ),
         now,
     )
-    return booking.view(booking_ops.get(item["bookingId"]))
+    return _group_result(item, members)
 
 
 @logger.inject_lambda_context

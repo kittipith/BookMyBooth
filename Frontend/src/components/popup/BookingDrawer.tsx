@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { isEventDay, movableLots } from '../../services/organizer'
-import type { LotStates, OrganizerBooking, PublicEvent } from '../../types'
+import type { BookingGroup, LotStates, OrganizerBooking, PublicEvent } from '../../types'
 import { baht, dateTimeLabel, fullTitle, rangeLabel } from '../../utils/format'
 import { lotZoneId } from '../../utils/pricing'
 import { BookingStatusBadge } from '../common/StatusBadge'
@@ -9,16 +9,15 @@ import SlipCard from '../organizer/SlipCard'
 import SelectBox from '../common/SelectBox'
 
 interface BookingDrawerProps {
-  booking: OrganizerBooking
+  /** การจองทั้งชุด ปุ่มทุกปุ่มทำทั้งชุด (D7) */
+  booking: BookingGroup<OrganizerBooking>
   event: PublicEvent
   /** สถานะล็อกของงาน (ยังโหลดไม่เสร็จ = undefined) */
   states: LotStates | undefined
-  /** การจองทั้งหมดของผู้จัดงาน ใช้หาล็อกที่จองพร้อมกันในชุดเดียวกัน */
-  allBookings: OrganizerBooking[]
   busy: boolean
   onClose: () => void
-  /** อนุมัติ หรือย้ายไปล็อกที่ระบุแล้วอนุมัติ */
-  onApprove: (moveTo?: string) => void
+  /** อนุมัติทั้งชุด หรือย้ายบางล็อก {ล็อกเดิม: ล็อกใหม่} แล้วอนุมัติ */
+  onApprove: (moves?: Record<string, string>) => void
   onReject: () => void
   onCancel: () => void
   onCheckIn: () => void
@@ -37,7 +36,6 @@ export default function BookingDrawer({
   booking,
   event,
   states,
-  allBookings,
   busy,
   onClose,
   onApprove,
@@ -47,6 +45,7 @@ export default function BookingDrawer({
 }: BookingDrawerProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const [moving, setMoving] = useState(false)
+  const [moveFrom, setMoveFrom] = useState(booking.lots[0])
   const [moveTo, setMoveTo] = useState('')
 
   useEffect(() => {
@@ -56,10 +55,10 @@ export default function BookingDrawer({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // ล็อกอื่นที่ร้านนี้จองพร้อมกันด้วยสลิปเดียวกัน
-  const group = allBookings.filter((b) => b.groupId === booking.groupId)
-  const targets = booking.status === 'pending' && states ? movableLots(event, states, booking.lot) : []
-  const preview = moving && moveTo ? moveTo : booking.lot
+  const many = booking.lots.length > 1
+  const targets = booking.status === 'pending' && states ? movableLots(event, states, moveFrom) : []
+  // ผังแสดงตำแหน่งหลังย้ายถ้าเลือกล็อกปลายทางแล้ว
+  const preview = moving && moveTo ? booking.lots.map((l) => (l === moveFrom ? moveTo : l)) : booking.lots
   const eventDay = isEventDay(event)
 
   return (
@@ -86,9 +85,9 @@ export default function BookingDrawer({
 
         <div className="p-6 space-y-6">
           <div className="flex items-end justify-between bg-mist rounded-xl p-5 gap-4">
-            <div>
-              <p className="text-sm text-muted">ล็อก</p>
-              <p className="font-display text-5xl font-bold leading-none mt-1">{booking.lot}</p>
+            <div className="min-w-0">
+              <p className="text-sm text-muted">{many ? `${booking.lots.length} ล็อก` : 'ล็อก'}</p>
+              <p className={`font-display font-bold leading-none mt-1 ${many ? 'text-3xl' : 'text-5xl'}`}>{booking.lot}</p>
             </div>
             <div className="text-right text-sm">
               <p>{fullTitle(event)}</p>
@@ -98,10 +97,14 @@ export default function BookingDrawer({
 
           <div>
             <p className="text-sm text-muted mb-2">ตำแหน่งบนผังงาน</p>
-            {states ? <FloorMiniMap event={event} states={states} target={preview} /> : <p className="text-sm text-muted">กำลังโหลดผัง…</p>}
-            <p className="mt-3 text-sm">
-              <b>{booking.lot}</b> อยู่โซน {lotZoneId(booking.lot)} {positionText(event, booking.lot)}
-            </p>
+            {states ? <FloorMiniMap event={event} states={states} targets={preview} /> : <p className="text-sm text-muted">กำลังโหลดผัง…</p>}
+            <ul className="mt-3 text-sm space-y-0.5">
+              {booking.lots.map((lot) => (
+                <li key={lot}>
+                  <b>{lot}</b> อยู่โซน {lotZoneId(lot)} {positionText(event, lot)}
+                </li>
+              ))}
+            </ul>
           </div>
 
           <dl className="grid grid-cols-2 gap-4 text-sm">
@@ -168,10 +171,9 @@ export default function BookingDrawer({
 
           <div>
             <p className="text-sm text-muted mb-2">สลิปการโอน</p>
-            {group.length > 1 && (
+            {many && (
               <p className="mb-3 text-sm bg-mist rounded-lg px-3 py-2">
-                จองพร้อมกัน {group.length} ล็อก ({group.map((b) => b.lot).sort().join(', ')}) ด้วยสลิปเดียวกัน ยอดรวม{' '}
-                <b>{baht(group.reduce((sum, b) => sum + b.amount, 0))}</b> คำขอแต่ละล็อกอนุมัติแยกกันได้
+                สลิปเดียวสำหรับ {booking.lots.length} ล็อก ยอดรวม <b>{baht(booking.amount)}</b> อนุมัติหรือไม่อนุมัติทั้งชุดพร้อมกัน
               </p>
             )}
             {booking.hasSlip ? (
@@ -185,6 +187,21 @@ export default function BookingDrawer({
 
           {booking.status === 'pending' && moving && (
             <div className="border-[1.5px] border-cobalt/40 rounded-xl p-4">
+              {many && (
+                <label className="block mb-3">
+                  <span className="text-sm font-semibold">ย้ายล็อก</span>
+                  <SelectBox
+                    value={moveFrom}
+                    onChange={(lot) => {
+                      setMoveFrom(lot)
+                      setMoveTo('')
+                    }}
+                    options={booking.lots}
+                    className="mt-2"
+                    aria-label="ล็อกที่จะย้าย"
+                  />
+                </label>
+              )}
               <label className="block">
                 <span className="text-sm font-semibold">ย้ายไปล็อก</span>
                 <SelectBox
@@ -205,7 +222,7 @@ export default function BookingDrawer({
                 <button
                   type="button"
                   disabled={!moveTo || busy}
-                  onClick={() => onApprove(moveTo)}
+                  onClick={() => onApprove({ [moveFrom]: moveTo })}
                   className="flex-1 bg-cobalt text-oncobalt rounded-xl py-2.5 font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   ย้ายแล้วอนุมัติ
@@ -231,7 +248,7 @@ export default function BookingDrawer({
                 onClick={() => onApprove()}
                 className="flex-1 bg-cobalt text-oncobalt rounded-xl py-3 font-semibold press disabled:opacity-40"
               >
-                อนุมัติ
+                {many ? 'อนุมัติทั้งชุด' : 'อนุมัติ'}
               </button>
               {!moving && (
                 <button
@@ -265,7 +282,7 @@ export default function BookingDrawer({
                 onClick={onCancel}
                 className="flex-1 border-[1.5px] border-line rounded-xl py-3 font-semibold hover:border-danger hover:text-danger disabled:opacity-40"
               >
-                ยกเลิกการจองนี้
+                {many ? 'ยกเลิกทั้งชุด' : 'ยกเลิกการจองนี้'}
               </button>
             </div>
           )}

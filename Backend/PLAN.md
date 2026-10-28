@@ -376,7 +376,7 @@ transaction ล้ม → ดูตำแหน่งใน `CancellationReasons
 
 Response `201`: `{ groupId, bookings: [...] }`
 
-หลังจากนั้นแต่ละ Booking เดินสถานะของตัวเอง (อนุมัติ ย้าย ปฏิเสธ ยกเลิก ทีละล็อก และโควตา −1 ต่อล็อก) `groupId` ใช้แค่จัดกลุ่มแสดงผล
+หลังจากนั้น **ตัดสินทั้งชุด** (D7 2026-10-28): อนุมัติ ปฏิเสธ ยกเลิก และเช็กอิน รับ `bookingId` ใดก็ได้ในชุด แล้วทำกับทุก Booking ในชุดที่ยังไม่จบ (ไม่ใช่ REJECTED/CANCELLED/EXPIRED) ใน transaction เดียว หาสมาชิกชุดจาก GSI `bySeller` + `groupId` (ไม่ต้องมี GSI ใหม่) · ทุกสมาชิกต้องอยู่ในสถานะต้นทางที่ถูกต้อง ไม่งั้น `409 INVALID_STATUS` · ตอบ `{ groupId, bookings }` · แจ้งเตือนข้อความเดียวต่อชุด · Booking ยังเก็บล็อกละ record (ใช้ตอนย้ายล็อก แสดงสถานะบนผัง และนับโควตา) ส่วนหมดเวลาก็ทำทั้งชุด (ข้อ 7.5)
 
 หลัง transaction สำเร็จ:
 - สร้าง schedule `expire-<groupId>` ชุดละ 1 ตัว ด้วย `scheduler.create_schedule(ScheduleExpression="at(yyyy-mm-ddThh:mm:ss)", ScheduleExpressionTimezone="UTC", Target={Arn: EXPIRE_FUNCTION_ARN, RoleArn: SCHEDULER_ROLE_ARN, Input: {"bookingIds": [...]}}, ActionAfterCompletion="DELETE", FlexibleTimeWindow={"Mode": "OFF"})` แล้ว expire_booking วนรัน transaction หมดเวลาทีละ Booking
@@ -391,15 +391,15 @@ Response `201`: `{ groupId, bookings: [...] }`
 4. ลบ schedule `expire-<groupId>` (ลบไม่ได้ก็ไม่เป็นไร เพราะ expire_booking มี condition กันอยู่) และแจ้งเตือนผู้จัดงาน `booking_slip_uploaded`
 5. ดูสลิป `GET /bookings/{id}/slip` → `{url}` presigned GET อายุ 5 นาที ให้เจ้าของการจอง หรือผู้จัดงาน (`organizerId`) เท่านั้น
 
-### 7.3 อนุมัติ `POST /bookings/{id}/approve` `{ newLotId? }`
-ต้องเป็นผู้จัดงานของงานนั้น (`booking.organizerId`) และ Booking ต้อง `PENDING_REVIEW` (ยังไม่แนบสลิป → `409 INVALID_STATUS`) TransactItems อยู่ใน `domain/booking.approve_items`
-- ไม่ย้ายล็อก (ไม่ส่ง `newLotId` หรือส่งล็อกเดิม): Booking `PENDING_REVIEW → APPROVED` + `decidedBy`, `decidedAt` · Lot `HELD → BOOKED` (condition `bookingId = :id`)
-- ย้ายล็อก (`newLotId` ในงานเดียวกัน): ไม่พบล็อก → `400 UNKNOWN_LOT` · เรียก fallback 7.6 กับล็อกปลายทาง แล้วถ้ายังไม่ว่าง → `409 LOT_NOT_AVAILABLE`
-  1. Booking `→ APPROVED`, `lotId = newLotId`, append `moves` `{from, to, at, by}` ด้วย `list_append(if_not_exists(moves, []), ...)` — condition `#status = :review`
+### 7.3 อนุมัติทั้งชุด `POST /bookings/{id}/approve` `{ moves?: {ล็อกเดิม: ล็อกใหม่} }`
+ต้องเป็นผู้จัดงานของงานนั้น (`booking.organizerId`) และทุก Booking ในชุดต้อง `PENDING_REVIEW` (ยังไม่แนบสลิป → `409 INVALID_STATUS`) TransactItems อยู่ใน `domain/booking.approve_items` (≤ 3 item ต่อล็อก รวม ≤ 60)
+- ล็อกที่ไม่ย้าย (ไม่อยู่ใน `moves` หรือย้ายไปล็อกเดิม): Booking `PENDING_REVIEW → APPROVED` + `decidedBy`, `decidedAt` · Lot `HELD → BOOKED` (condition `bookingId = :id`)
+- ล็อกที่ย้าย (ล็อกใหม่ในงานเดียวกัน): ล็อกเดิมไม่อยู่ในชุด หรือไม่พบล็อกปลายทาง → `400 UNKNOWN_LOT` · ย้ายหลายล็อกไปล็อกเดียวกัน → `400 DUPLICATE_LOT` · เรียก fallback 7.6 กับล็อกปลายทาง แล้วถ้ายังไม่ว่าง → `409 LOT_NOT_AVAILABLE`
+  1. Booking `→ APPROVED`, `lotId = ล็อกใหม่`, append `moves` `{from, to, at, by}` ด้วย `list_append(if_not_exists(moves, []), ...)` — condition `#status = :review`
   2. ล็อกเดิม `HELD → AVAILABLE`, `REMOVE bookingId, holdExpiresAt` — condition `bookingId = :id`
   3. ล็อกใหม่ `AVAILABLE → BOOKED`, `bookingId = :id` — condition `#status = :available`
   4. `amount` ใช้ราคาเดิมที่ผู้ขายโอนมา (ไม่คิดส่วนต่าง) โควตาไม่เปลี่ยน
-- แจ้งเตือนผู้ขาย `booking_approved` หรือ `booking_moved`
+- แจ้งเตือนผู้ขายครั้งเดียวต่อชุด `booking_approved` (ระบุทุกล็อก) หรือ `booking_moved` (ระบุล็อกที่ย้าย)
 
 ### 7.3.1 รายการการจองของงาน `GET /events/{id}/bookings?status=`
 ผู้จัดงานเจ้าของงาน · query GSI `byEventStatus` (`begins_with(statusCreatedAt, "<STATUS>#")` เมื่อระบุ status) · Booking ที่เลยเวลาแล้วเปลี่ยนเป็น EXPIRED ก่อนตอบ · เรียงใหม่สุดก่อน → `{ items }`
@@ -412,23 +412,24 @@ Response `201`: `{ groupId, bookings: [...] }`
 | ผู้จัดงานยกเลิก (ต้องมีเหตุผล) | APPROVED | → CANCELLED | BOOKED → AVAILABLE | −1 |
 | หมดเวลา (ระบบ) | PENDING_PAYMENT | → EXPIRED | HELD → AVAILABLE | −1 |
 
-ทุกแถวเป็น transaction เดียว (`domain/booking.release_items`) โดย condition ที่ Booking คือสถานะต้นทาง (หมดเวลาเพิ่ม `expiresAt <= :now`) และที่ Lot คือ `bookingId = :id` ล็อกถูก `REMOVE bookingId, holdExpiresAt` · ยกเลิกทำทีละ booking ไม่ใช่ทั้งชุด
+ทุกแถวเป็น transaction เดียว (`domain/booking.release_items` รับหลาย Booking ในชุด) โดย condition ที่ Booking คือสถานะต้นทาง (หมดเวลาเพิ่ม `expiresAt <= :now`) และที่ Lot คือ `bookingId = :id` ล็อกถูก `REMOVE bookingId, holdExpiresAt` · โควตารวมเป็น update เดียว `−N` (transaction แตะ item ซ้ำไม่ได้) · ปฏิเสธ ยกเลิก และหมดเวลาทำ**ทั้งชุด** (D7)
 
 - ปฏิเสธ `POST /bookings/{id}/reject` `{reason}` (บังคับ) เก็บ `reason`, `decidedBy`, `decidedAt` แจ้งเตือนผู้ขาย `booking_rejected`
 - ยกเลิก `POST /bookings/{id}/cancel` route เดียวใช้ทั้งสองฝ่าย ดูจากผู้เรียก: เจ้าของการจอง (Seller) → ยกเลิกก่อนอนุมัติ ไม่ต้องมีเหตุผล แจ้งเตือนผู้จัดงาน · ผู้จัดงานของงาน (Organizer) → ยกเลิกได้เฉพาะ APPROVED ต้องมี `{reason}` แจ้งเตือนผู้ขาย (`booking_cancelled` ทั้งสองแบบ ข้อความต่างกัน) · การจองที่รอตรวจให้ผู้จัดงานใช้ปฏิเสธแทน (`409 INVALID_STATUS`)
 
 ### 7.5 expire_booking
-- รับ `{"bookingIds": [...]}` จาก Scheduler แล้วรัน transaction "หมดเวลา" ด้านบนทีละ Booking ถ้า condition ล้มเหลว (ผู้ขายอัปโหลดสลิปหรือยกเลิกไปแล้ว หรือยังไม่ถึงเวลา) ให้จบเงียบ ๆ ถ้าสำเร็จแจ้งเตือนผู้ขาย `booking_expired` คืน `{"expired": [...]}`
+- รับ `{"bookingIds": [...]}` จาก Scheduler แล้วเรียก `shared/booking_ops.expire` ทีละ Booking ซึ่งหมดเวลา**ทุกล็อกในชุด**ที่เลยเวลาแล้วใน transaction เดียว (โควตา −N) และแจ้งเตือนผู้ขาย `booking_expired` ครั้งเดียวต่อชุด (D7) · Booking ที่ถูกหมดเวลาไปพร้อมล็อกอื่นในชุดแล้วนับว่าหมดเวลาด้วย · ถ้า condition ล้มเหลว (ผู้ขายอัปโหลดสลิปหรือยกเลิกไปแล้ว หรือยังไม่ถึงเวลา) ให้จบเงียบ ๆ คืน `{"expired": [...]}`
 - **โหมดกวาด:** ถ้า input ไม่มี `bookingIds` จะ scan หา Booking `PENDING_PAYMENT` ที่ `expiresAt <= now` ทั้งหมด ใช้กับ schedule `rate(5 minutes)` ได้เลยโดยไม่ต้องแก้โค้ด ถ้าสัปดาห์ 11 พบว่า Lambda สร้าง schedule เองไม่ได้ (ข้อ 13)
 
 ### 7.7 เช็กอิน `POST /bookings/{id}/check-in` (D5b)
-- QR ในตั๋วของผู้ขาย = `bookingId` ผู้จัดงานสแกนแล้วเรียก route นี้
-- ต้องเป็นผู้จัดงานของงาน, Booking `APPROVED` และวันนี้ (เวลาไทย) อยู่ระหว่าง `startDate`–`endDate` (ไม่งั้น `409 NOT_EVENT_DAY`)
-- SET `checkedIn = true`, `checkedInAt`, `checkedInBy` condition `#status = :approved AND attribute_not_exists(checkedInAt)` · เช็กอินแล้วเรียกซ้ำคืนผลเดิม (ไม่เปลี่ยนเวลา)
+- QR ในตั๋วของผู้ขาย = `bookingId` ของล็อกแรกในชุด ผู้จัดงานสแกนแล้วเรียก route นี้ เช็กอิน**ทั้งชุด**ครั้งเดียว (D7)
+- ต้องเป็นผู้จัดงานของงาน, ทุก Booking ในชุด `APPROVED` และวันนี้ (เวลาไทย) อยู่ระหว่าง `startDate`–`endDate` (ไม่งั้น `409 NOT_EVENT_DAY`)
+- SET `checkedIn = true`, `checkedInAt`, `checkedInBy` ทุกล็อกที่ยังไม่เช็กอินใน transaction เดียว (`domain/booking.check_in_items`) condition `#status = :approved AND attribute_not_exists(checkedInAt)` · เช็กอินแล้วเรียกซ้ำคืนผลเดิม (ไม่เปลี่ยนเวลา)
 
 ### 7.8 สถิติร้าน `GET /organizer/vendors` (D5e)
 - รวม Booking `APPROVED` ทุกงานของผู้จัดคนนั้น จัดกลุ่มตาม `sellerId` → `{ items: [{ shop: <โปรไฟล์ผู้ขาย>, approved, total, pastCount, showRate, flagged }] }` เรียงตาม `approved` มากสุดก่อน
-- คำนวณแบบเดียวกับ `shopStats`/`vendorStats` ใน frontend (`domain/vendors.py`): `pastCount` = การจองในงานที่ `ENDED` แล้ว · `showRate` = % ที่เช็กอินในงานที่จบแล้ว (`null` ถ้ายังไม่มี) · `flagged` = `pastCount ≥ 2` และ `showRate < 60`
+- นับครั้งตามชุด (`groupId`) ไม่ใช่ตามล็อก (D7): `approved` = จำนวนชุด, `total` = ยอดรวมทุกล็อก
+- คำนวณแบบเดียวกับ `sellerStats` ใน frontend (`domain/vendors.py`): `pastCount` = ชุดในงานที่ `ENDED` แล้ว · ชุดที่เช็กอินล็อกใดก็ได้ถือว่ามา · `showRate` = % ที่เช็กอินในงานที่จบแล้ว (`null` ถ้ายังไม่มี) · `flagged` = `pastCount ≥ 2` และ `showRate < 60`
 
 ### 7.6 Fallback กรณี schedule ไม่ทำงาน
 `shared/booking_ops.expire_stale_lots`: ล็อก `HELD` ที่ `holdExpiresAt <= now` → โหลด Booking แล้วรัน transaction หมดเวลา จากนั้นถือว่าล็อกว่าง ใช้ใน
@@ -627,9 +628,9 @@ Frontend ใน `Frontend/src/types.ts` มีความสามารถม�
 | F19 | แนบสลิปทีหลัง (D3) | หลังจองได้ `PENDING_PAYMENT` แสดงเวลาที่เหลือจาก `expiresAt` · ขั้นแนบสลิป: `POST /bookings/{id}/slip-url {contentType}` → สร้าง `FormData` ใส่ทุกค่าใน `fields` แล้ว `file` เป็นช่องสุดท้าย → `POST` ไปที่ `url` → `POST /bookings/{id}/slip {key}` · **สลิปเดียวต่อชุด** แนบครั้งเดียวทุกล็อกในชุดเป็น `PENDING_REVIEW` · ถ้าอยากแนบพร้อมส่งคำขอเหมือนเดิม ให้เรียก 3 ขั้นนี้ต่อทันทีหลัง `POST /bookings` · รับ jpg/png/pdf ไม่เกิน 5 MB · `409 BOOKING_EXPIRED` = หมดเวลา ต้องจองใหม่ · เอา `slipAmount`, `slipName` ออก | 7.2, D3 |
 | F20 | ดูสลิป | `GET /bookings/{id}/slip` → `{ url }` อายุ 5 นาที (ผู้ขายเจ้าของ / ผู้จัดงาน) ขอใหม่ทุกครั้งที่เปิดดู | 7.2 |
 | F21 | การจองของฉัน | `GET /bookings/me` (ใหม่สุดก่อน) · สถานะ `PENDING_PAYMENT` (รอแนบสลิป), `PENDING_REVIEW` (รอตรวจ), `APPROVED`, `REJECTED`, `CANCELLED`, `EXPIRED` — frontend มีแค่ `pending/approved/rejected/cancelled` ต้องเพิ่ม 2 สถานะ (รอสลิป, หมดเวลา) · จัดกลุ่มตาม `groupId` ได้ · ใช้ `lotId` แทน `lot` และ `createdAt` แทน `submittedAt` | 4.4, 7 |
-| F22 | ผู้ขายยกเลิก | `POST /bookings/{id}/cancel` ได้เฉพาะ `PENDING_PAYMENT` / `PENDING_REVIEW` ทีละล็อก | 7.4 |
+| F22 | ผู้ขายยกเลิก | `POST /bookings/{id}/cancel` ได้เฉพาะ `PENDING_PAYMENT` / `PENDING_REVIEW` ยกเลิกทั้งชุด (D7, F35) | 7.4 |
 | F24 | หน้าตรวจการจองของผู้จัดงาน | `GET /events/{id}/bookings?status=PENDING_REVIEW` (กรองตามสถานะได้) แทนการอ่าน bookings ทั้งหมดใน store · ปุ่มดูสลิปใช้ F20 | 7.3.1 |
-| F25 | อนุมัติ / ย้ายล็อก | `POST /bookings/{id}/approve` `{}` หรือ `{ newLotId }` · อนุมัติได้เฉพาะ `PENDING_REVIEW` · ย้ายล็อกไม่คิดส่วนต่างราคา (`amount` คงเดิม) · `409 LOT_NOT_AVAILABLE` = ล็อกปลายทางไม่ว่าง · `moves[]` มี `by` เพิ่ม | 7.3 |
+| F25 | อนุมัติ / ย้ายล็อก | `POST /bookings/{id}/approve` `{}` หรือ `{ moves: {ล็อกเดิม: ล็อกใหม่} }` อนุมัติทั้งชุด (D7, F35) · อนุมัติได้เฉพาะ `PENDING_REVIEW` · ย้ายล็อกไม่คิดส่วนต่างราคา (`amount` คงเดิม) · `409 LOT_NOT_AVAILABLE` = ล็อกปลายทางไม่ว่าง · `moves[]` มี `by` เพิ่ม | 7.3 |
 | F26 | ปฏิเสธ / ยกเลิกหลังอนุมัติ | `POST /bookings/{id}/reject {reason}` · `POST /bookings/{id}/cancel {reason}` (ผู้จัดงาน, เฉพาะ APPROVED) · ต้องกรอกเหตุผลทั้งสองแบบ | 7.4 |
 | F27 | เช็กอิน QR | ตั๋วของผู้ขายสร้าง QR จาก `bookingId` (เฉพาะ APPROVED) · ผู้จัดงานสแกนแล้วเรียก `POST /bookings/{id}/check-in` ได้เฉพาะวันงาน (`409 NOT_EVENT_DAY`) เรียกซ้ำได้ · ใช้ `checkedIn` / `checkedInAt` จาก Booking · ข้อความ `booking_approved` จาก backend ไม่มีคำว่า QR แล้ว ถ้าอยากบอกให้แสดงในหน้าตั๋วเอง | 7.7, D5b |
 | F28 | หน้ารายชื่อร้าน (VendorsPage) | `GET /organizer/vendors` แทน `vendorStats()` ในเครื่อง ได้ `shop` (โปรไฟล์ผู้ขาย ใช้ `userId`, `shopName`, `displayName` แทน `Shop.id/name/owner`), `approved`, `total`, `pastCount`, `showRate`, `flagged` | 7.8, D5e |
@@ -639,5 +640,7 @@ Frontend ใน `Frontend/src/types.ts` มีความสามารถม�
 | F32 | บัญชีรับเงินตั้งต้นของผู้จัดงาน | `OrganizerProfilePage` แก้ `payment {bank, accountName, accountNo}` ผ่าน `PUT /me` (ส่งครบ 3 ฟิลด์ ขาดตัวไหน → `400 VALIDATION_ERROR` · ผู้ขายส่งมา → `400 FIELD_NOT_ALLOWED`) · `GET /me` ของผู้จัดงานมี `payment` เมื่อเคยบันทึก · ฟอร์มงานใหม่เติมค่าจาก `me.payment` (backend พร้อมแล้ว B2) | INTEGRATION-PLAN I3 |
 | F33 | หน้า Admin ผู้ใช้/สรุป | `UserPage` → `GET /admin/users?role=SELLER\|ORGANIZER\|ADMIN` (ไม่ส่ง role = ทุกคน) ได้ `{ items }` โปรไฟล์แบบ `/me` · ตัวเลขใน `OrganizerApprovalsPage` และรายได้ใน `AllEventsPage` จาก `GET /admin/events` ที่ทุกงานมี `status`, `bookingCount` (การจองที่ยังถือล็อก) และ `revenue` (ยอดที่อนุมัติแล้ว) — รวมงานฉบับร่างด้วย (backend พร้อมแล้ว B3) | INTEGRATION-PLAN I5 |
 | F23 | ประเภทแจ้งเตือนใหม่ | เพิ่ม `booking_slip_uploaded` และ `booking_expired` ใน `NotificationType` + ไอคอนใน `data/options.ts` · ข้อความมาจาก backend แล้ว ไม่ต้องสร้างเองใน `data/notifications.ts` | 8 |
+| F35 | 1 การจอง = 1 ชุด (D7) | รวมการจองตาม `groupId` เป็นการ์ด/แถวเดียว (`services/bookings.groupBookings`, type `BookingGroup`) · approve ส่ง `{moves}` แทน `{newLotId}` · approve/reject/cancel/check-in ตอบ `{groupId, bookings}` และทำทั้งชุด · ผู้ขายยกเลิกทั้งชุด · QR = `bookingId` ของล็อกแรก · สถิติร้านนับตามชุด | 7.1, 7.3, 7.4, 7.7, 7.8 |
+| F36 | ไอคอนแจ้งเตือน | เปลี่ยนอิโมจิใน `NOTIFICATION_ICON` (`data/options.ts`) เป็นไอคอน SVG ของ `lucide-react` พร้อมโทนสีต่อประเภท | 8 |
 | F34 | กระดิ่งแจ้งเตือนของผู้ขาย | `UserLayout` ยังไม่มี `NotificationBell` (มีแค่ `DashboardLayout`) ผู้ขายจึงมองไม่เห็น `booking_approved/moved/rejected/cancelled/expired`, `account_*` ที่ backend สร้างให้ · เพิ่มกระดิ่งใน header ฝั่งผู้ขาย (พบตอนทดสอบ 2026-10-28) | 8 |
 | F18 | แจ้งเตือน | poll `GET /notifications` ทุก 30–60 วินาที → `{ items, unreadCount }` (ใช้ `id` ของ item แทน `AppNotification.id`, ไม่มี `accountId`) · อ่านแล้ว `POST /notifications/read` `{ ids }` หรือ `{ all: true }` · ไม่ต้องสร้างแจ้งเตือนเองใน `AppProvider` อีก backend สร้างให้หมด | 8 |

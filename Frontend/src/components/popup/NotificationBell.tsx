@@ -1,3 +1,4 @@
+import { Bell } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { NOTIFICATION_ICON } from '../../data/options'
@@ -6,6 +7,23 @@ import { useAuth } from '../../hooks/useAuth'
 import { useMarkNotificationsRead, useNotifications } from '../../queries/notifications'
 import type { AppNotification } from '../../types'
 import { dateTimeLabel } from '../../utils/format'
+
+const TONE_CLASS = {
+  cobalt: 'bg-cobalt/10 text-cobalt',
+  danger: 'bg-danger/10 text-danger',
+  sun: 'bg-sun/40 text-ink',
+  muted: 'bg-mist text-muted',
+} as const
+
+function NotificationIcon({ type }: { type: AppNotification['type'] }) {
+  // ประเภทที่ frontend ยังไม่รู้จักใช้ไอคอนกระดิ่งธรรมดา
+  const { icon: Icon, tone } = NOTIFICATION_ICON[type] ?? { icon: Bell, tone: 'muted' }
+  return (
+    <span className={`w-8 h-8 shrink-0 rounded-full grid place-items-center ${TONE_CLASS[tone]}`} aria-hidden="true">
+      <Icon className="w-4 h-4" strokeWidth={2} />
+    </span>
+  )
+}
 
 interface NotificationBellProps {
   /** เปิดรายการไปทางซ้ายหรือขวาของปุ่ม */
@@ -93,7 +111,7 @@ export default function NotificationBell({ align = 'right' }: NotificationBellPr
                   onClick={() => openItem(n)}
                   className={`w-full text-left px-4 py-3 flex gap-3 hover:bg-mist ${n.read ? '' : 'bg-cobalt/5'}`}
                 >
-                  <span aria-hidden="true">{NOTIFICATION_ICON[n.type]}</span>
+                  <NotificationIcon type={n.type} />
                   <span className="min-w-0 flex-1">
                     <span className={`block text-sm leading-snug ${n.read ? 'text-muted' : 'font-semibold'}`}>{n.message}</span>
                     <span className="block text-xs text-muted mt-1">{dateTimeLabel(n.createdAt)}</span>

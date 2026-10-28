@@ -10,7 +10,7 @@ import { useBookingDecisions } from '../../hooks/useBookingDecisions'
 import { useToast } from '../../hooks/useToast'
 import { useEventLots } from '../../queries/events'
 import { useCheckIn, useOrganizerBookings } from '../../queries/organizer'
-import type { BookingUiStatus, OrganizerBooking } from '../../types'
+import type { BookingGroup, BookingUiStatus, OrganizerBooking } from '../../types'
 import { baht, dateTimeLabel, fullTitle, rangeLabel } from '../../utils/format'
 import SelectBox from '../../components/common/SelectBox'
 
@@ -26,8 +26,8 @@ export default function BookingsPage() {
   const checkIn = useCheckIn()
   const toast = useToast()
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [rejecting, setRejecting] = useState<OrganizerBooking | null>(null)
-  const [cancelling, setCancelling] = useState<OrganizerBooking | null>(null)
+  const [rejecting, setRejecting] = useState<BookingGroup<OrganizerBooking> | null>(null)
+  const [cancelling, setCancelling] = useState<BookingGroup<OrganizerBooking> | null>(null)
 
   const tab = (TABS.includes(params.get('tab') as Tab) ? params.get('tab') : 'pending') as Tab
   const eventFilter = params.get('event') ?? ''
@@ -51,7 +51,7 @@ export default function BookingsPage() {
   const scoped = bookings.filter(
     (b) =>
       (!eventFilter || b.eventId === eventFilter) &&
-      (!keyword || b.shopName.toLowerCase().includes(keyword) || b.lot.toLowerCase().includes(keyword)),
+      (!keyword || b.shopName.toLowerCase().includes(keyword) || b.lots.some((lot) => lot.toLowerCase().includes(keyword))),
   )
   const count = (t: Tab) => (t === 'all' ? scoped.length : scoped.filter((b) => b.status === t).length)
   const rows = tab === 'all' ? scoped : scoped.filter((b) => b.status === tab)
@@ -60,7 +60,8 @@ export default function BookingsPage() {
   const allChecked = pendingRows.length > 0 && chosen.length === pendingRows.length
 
   const eventOf = (b: OrganizerBooking) => events.find((e) => e.id === b.eventId)
-  const open = openId ? bookings.find((b) => b.id === openId) : undefined
+  // id ในลิงก์ (เช่นจากแจ้งเตือน) อาจเป็นล็อกใดก็ได้ในชุด
+  const open = openId ? bookings.find((g) => g.items.some((b) => b.id === openId)) : undefined
   const openEvent = open && eventOf(open)
   const { data: openStates } = useEventLots(open?.eventId)
   const closeDrawer = useCallback(() => update({ id: null }), [update])
@@ -164,7 +165,7 @@ export default function BookingsPage() {
             {rows.map((b) => {
               const event = eventOf(b)
               return (
-                <tr key={b.id} className="hover:bg-mist/50 cursor-pointer" onClick={(e) => onRowClick(e, b)}>
+                <tr key={b.key} className="hover:bg-mist/50 cursor-pointer" onClick={(e) => onRowClick(e, b)}>
                   <td className="px-5 py-4">
                     {b.status === 'pending' && (
                       <input
@@ -233,14 +234,13 @@ export default function BookingsPage() {
 
       {open && openEvent && (
         <BookingDrawer
-          key={open.id}
+          key={open.key}
           booking={open}
           event={openEvent}
           states={openStates}
-          allBookings={bookings}
           busy={busy || checkIn.isPending}
           onClose={closeDrawer}
-          onApprove={(moveTo) => approve(open, moveTo)}
+          onApprove={(moves) => approve(open, moves)}
           onReject={() => setRejecting(open)}
           onCancel={() => setCancelling(open)}
           onCheckIn={() => onCheckIn(open)}

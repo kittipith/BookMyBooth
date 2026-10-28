@@ -149,17 +149,20 @@ def test_full_booking_flow(user_pool, frozen_clock):
         "url"
     ]
 
-    moved = ok(
+    # อนุมัติทั้งชุดครั้งเดียว พร้อมย้าย A01 → A02 (D7)
+    approved = ok(
         call(
             bookings_api,
             "POST",
-            f"/bookings/{by_lot['A01']}/approve",
-            {"newLotId": "A02"},
+            f"/bookings/{by_lot['B01']}/approve",
+            {"moves": {"A01": "A02"}},
             as_user=organizer,
         )
-    )
-    assert (moved["status"], moved["lotId"], moved["amount"]) == ("APPROVED", "A02", 500)
-    ok(call(bookings_api, "POST", f"/bookings/{by_lot['B01']}/approve", as_user=organizer))
+    )["bookings"]
+    assert {(b["status"], b["lotId"], b["amount"]) for b in approved} == {
+        ("APPROVED", "A02", 500),
+        ("APPROVED", "B01", 300),
+    }
 
     lot_status = {
         lot["lotId"]: lot["status"]
@@ -173,13 +176,12 @@ def test_full_booking_flow(user_pool, frozen_clock):
         "B03": "AVAILABLE",
     }
 
-    # ---------- วันงาน: เช็กอินทั้งสองล็อก ----------
+    # ---------- วันงาน: สแกน QR ครั้งเดียวเช็กอินทั้งชุด ----------
     frozen_clock.advance(days=10)
-    for booking_id in by_lot.values():
-        checked = ok(
-            call(bookings_api, "POST", f"/bookings/{booking_id}/check-in", as_user=organizer)
-        )
-        assert checked["checkedIn"] is True
+    checked = ok(
+        call(bookings_api, "POST", f"/bookings/{by_lot['A01']}/check-in", as_user=organizer)
+    )["bookings"]
+    assert [b["checkedIn"] for b in checked] == [True, True]
     mine = ok(call(bookings_api, "GET", "/bookings/me", as_user=seller))["items"]
     assert {(item["lotId"], item["status"], item["checkedIn"]) for item in mine} == {
         ("A02", "APPROVED", True),
@@ -188,12 +190,12 @@ def test_full_booking_flow(user_pool, frozen_clock):
 
     # ---------- แจ้งเตือน ----------
     seller_types, seller_unread = notice_types(seller)
-    assert sorted(seller_types) == ["booking_approved", "booking_moved"]
-    assert seller_unread == 2
+    assert seller_types == ["booking_moved"]  # แจ้งครั้งเดียวต่อชุด
+    assert seller_unread == 1
     org_types, _ = notice_types(organizer)
     assert sorted(org_types) == ["booking_new", "booking_slip_uploaded", "organizer_approved"]
     read = ok(call(me_api, "POST", "/notifications/read", {"all": True}, as_user=seller))
-    assert read == {"updated": 2, "unreadCount": 0}
+    assert read == {"updated": 1, "unreadCount": 0}
 
     # ---------- สรุปงานและสถิติร้าน ----------
     summary = ok(call(events_api, "GET", f"/events/{event_id}/summary", as_user=organizer))
@@ -202,4 +204,4 @@ def test_full_booking_flow(user_pool, frozen_clock):
     assert summary["bookings"] == {"APPROVED": 2}
     [vendor] = ok(call(bookings_api, "GET", "/organizer/vendors", as_user=organizer))["items"]
     assert vendor["shop"]["shopName"] == "ร้านขนม"
-    assert (vendor["approved"], vendor["total"]) == (2, 800)
+    assert (vendor["approved"], vendor["total"]) == (1, 800)  # นับครั้งตามชุด

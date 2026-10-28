@@ -1,3 +1,18 @@
+import {
+  ArrowLeftRight,
+  BadgeCheck,
+  CircleCheck,
+  CircleMinus,
+  CircleX,
+  Hourglass,
+  Inbox,
+  Receipt,
+  ShieldBan,
+  ShieldCheck,
+  UserPlus,
+  UserX,
+  type LucideIcon,
+} from 'lucide-react'
 import type { AccountStatus, BookingUiStatus, EventStatus, EventType, LotState, NotificationType, Role } from '../types'
 
 export const EVENT_TYPES: EventType[] = ['ตลาดนัด', 'งานแฟร์', 'งานมหาวิทยาลัย']
@@ -76,17 +91,18 @@ export const ROLE_HOME: Record<Role, string> = {
   admin: '/admin',
 }
 
-export const NOTIFICATION_ICON: Record<NotificationType, string> = {
-  booking_new: '📥',
-  booking_slip_uploaded: '🧾',
-  booking_expired: '⌛',
-  booking_approved: '✅',
-  booking_moved: '🔀',
-  booking_rejected: '⛔',
-  booking_cancelled: '✖️',
-  organizer_pending: '🏷️',
-  organizer_approved: '✅',
-  organizer_rejected: '⛔',
-  account_suspended: '🚫',
-  account_unsuspended: '🔓',
+/** ไอคอน SVG (lucide) และโทนสีของแจ้งเตือนแต่ละประเภท */
+export const NOTIFICATION_ICON: Record<NotificationType, { icon: LucideIcon; tone: 'cobalt' | 'danger' | 'sun' | 'muted' }> = {
+  booking_new: { icon: Inbox, tone: 'sun' },
+  booking_slip_uploaded: { icon: Receipt, tone: 'sun' },
+  booking_expired: { icon: Hourglass, tone: 'muted' },
+  booking_approved: { icon: CircleCheck, tone: 'cobalt' },
+  booking_moved: { icon: ArrowLeftRight, tone: 'cobalt' },
+  booking_rejected: { icon: CircleX, tone: 'danger' },
+  booking_cancelled: { icon: CircleMinus, tone: 'danger' },
+  organizer_pending: { icon: UserPlus, tone: 'sun' },
+  organizer_approved: { icon: BadgeCheck, tone: 'cobalt' },
+  organizer_rejected: { icon: UserX, tone: 'danger' },
+  account_suspended: { icon: ShieldBan, tone: 'danger' },
+  account_unsuspended: { icon: ShieldCheck, tone: 'cobalt' },
 }

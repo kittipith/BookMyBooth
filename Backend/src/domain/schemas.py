@@ -178,9 +178,13 @@ class SlipUrlInput(CamelModel):
     content_type: Literal["image/jpeg", "image/png", "application/pdf"]
 
 
+LotId = Annotated[str, Field(pattern=_LOT_ID)]
+
+
 class ApproveInput(CamelModel):
-    # ใส่เมื่อผู้จัดงานย้ายผู้ขายไปล็อกอื่นพร้อมอนุมัติ
-    new_lot_id: str | None = Field(None, pattern=_LOT_ID)
+    """อนุมัติทั้งชุด (D7) · moves {ล็อกเดิม: ล็อกใหม่} เมื่อย้ายบางล็อกพร้อมอนุมัติ"""
+
+    moves: dict[LotId, LotId] = Field(default_factory=dict, max_length=20)
 
 
 class SlipInput(CamelModel):
