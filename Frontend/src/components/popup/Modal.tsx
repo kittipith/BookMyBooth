@@ -8,7 +8,10 @@ interface ModalProps {
   className?: string
 }
 
-/** กล่องโต้ตอบกลางจอ ปิดได้ด้วยปุ่ม Esc หรือแตะพื้นหลัง */
+/**
+ * กล่องโต้ตอบกลางจอ ปิดได้ด้วยปุ่ม Esc หรือแตะพื้นหลัง
+ * เนื้อหายาวเกินจอจะเลื่อนในกล่องชั้นใน แถบเลื่อนจึงไม่ทับขอบโค้ง ใช้ `sticky` ในลูกเพื่อตรึงหัว/ท้ายได้
+ */
 export default function Modal({ open, onClose, title, children, className = 'w-[420px]' }: ModalProps) {
   const titleId = useId()
 
@@ -29,14 +32,16 @@ export default function Modal({ open, onClose, title, children, className = 'w-[
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className={`toast-in bg-surface text-ink rounded-2xl border border-line shadow-[0_24px_60px_-20px_rgb(16_28_64/.35)] p-6 max-w-full ${className}`}
+        className={`toast-in flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden bg-surface text-ink rounded-2xl border border-line shadow-[0_24px_60px_-20px_rgb(16_28_64/.35)] max-w-full ${className}`}
       >
-        {title && (
-          <h2 id={titleId} className="font-display text-xl font-semibold">
-            {title}
-          </h2>
-        )}
-        {children}
+        <div className="overflow-y-auto overscroll-contain p-6 [scrollbar-width:thin] [scrollbar-gutter:stable_both-edges]">
+          {title && (
+            <h2 id={titleId} className="font-display text-xl font-semibold">
+              {title}
+            </h2>
+          )}
+          {children}
+        </div>
       </div>
     </div>
   )

@@ -153,7 +153,8 @@ export default function RegisterForm({ lockedRole, onLogin, onRegistered }: Regi
         </p>
       )}
 
-      <div className="mt-6 flex justify-end gap-3">
+      {/* ปุ่มตรึงไว้ด้านล่างกล่อง กดสมัครได้โดยไม่ต้องเลื่อนลงสุด */}
+      <div className="sticky -bottom-6 z-10 mt-3 -mx-6 px-6 py-3 flex justify-end gap-3 bg-surface shadow-[0_-10px_16px_-14px_rgb(16_28_64/.4)]">
         <button type="button" onClick={closeLogin} className="px-4 py-2.5 rounded-xl hover:bg-mist">
           ยกเลิก
         </button>
@@ -161,7 +162,7 @@ export default function RegisterForm({ lockedRole, onLogin, onRegistered }: Regi
           {busy ? 'กำลังสมัคร…' : 'สมัครสมาชิก'}
         </button>
       </div>
-      <p className="mt-5 pt-4 border-t border-line text-sm text-muted text-center">
+      <p className="mt-2 pt-4 border-t border-line text-sm text-muted text-center">
         มีบัญชีอยู่แล้ว?{' '}
         <button type="button" onClick={onLogin} className="text-cobalt font-semibold hover:underline underline-offset-4">
           เข้าสู่ระบบ
