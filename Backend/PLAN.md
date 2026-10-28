@@ -541,16 +541,16 @@ ruff check . && ruff format --check .
 
 สัปดาห์ 1–10 เป็นงานโค้ดล้วน ("เสร็จ" = โค้ด + เทสต์ในเครื่องผ่าน + เพิ่ม route/env ที่ต้องใช้ลงหัวข้อ 3 แล้ว) ยังไม่สร้างอะไรบน AWS
 
-| สัปดาห์ | ช่วง | งาน backend | ผู้รับผิดชอบหลัก |
-|---|---|---|---|
-| 1–2 | โค้ด | ตั้งโปรเจกต์ Python + pytest/moto, `tests/tables.py`, `shared/`, `scripts/build_zip.py` ✅ · spike ใน Lab ✅ | กิตติพิชญ์ |
-| 3–4 | โค้ด | post_confirmation, `shared/auth.py`, `/me`, Admin API, `scripts/seed.py` (เขียนไว้ก่อน รันจริงสัปดาห์ 11) ✅ | กิตติพิชญ์, สรวิชญ์ |
-| 5–6 | โค้ด | Events/Lots API, เก็บผังกริด + sync ล็อก, `GET /organizer/events`, summary, งานตัวอย่างใน seed ✅ | สรวิชญ์ |
-| 7–8 | โค้ด | `POST /bookings` (transaction + quota), สลิป, `shared/scheduler.py` + expire_booking, fallback 7.6, ผู้ขายยกเลิก ✅ | ปณวัฒน์ |
-| 9 | โค้ด | approve / move / reject / cancel, รายการการจองของงาน (summary ทำแล้วในสัปดาห์ 5–6) ✅ | ปณวัฒน์ |
-| 10 | โค้ด | Notifications API และเติม notify ให้ครบทุกเหตุการณ์ · ฟีเจอร์ตามข้อ 14 (เช็กอิน, สถิติร้าน, ยกเลิกระงับ, ข้อมูลเสริม) ✅ | สรวิชญ์ |
-| 11 | AWS | **สร้าง resource ชุด `dev` ใน Console** (หัวข้อ 3) + อัปโหลด zip, ทดสอบเรื่องในข้อ 10.2, race test, เชื่อม frontend, แก้บั๊ก | ทุกคน |
-| 12 | AWS | สร้างชุด `prod`, seed ข้อมูลเดโม, เอกสาร API | กิตติพิชญ์ |
+| สัปดาห์ | ช่วง | งาน backend |
+|---|---|---|
+| 1–2 | โค้ด | ตั้งโปรเจกต์ Python + pytest/moto, `tests/tables.py`, `shared/`, `scripts/build_zip.py` ✅ · spike ใน Lab ✅ |
+| 3–4 | โค้ด | post_confirmation, `shared/auth.py`, `/me`, Admin API, `scripts/seed.py` (เขียนไว้ก่อน รันจริงสัปดาห์ 11) ✅ |
+| 5–6 | โค้ด | Events/Lots API, เก็บผังกริด + sync ล็อก, `GET /organizer/events`, summary, งานตัวอย่างใน seed ✅ |
+| 7–8 | โค้ด | `POST /bookings` (transaction + quota), สลิป, `shared/scheduler.py` + expire_booking, fallback 7.6, ผู้ขายยกเลิก ✅ |
+| 9 | โค้ด | approve / move / reject / cancel, รายการการจองของงาน (summary ทำแล้วในสัปดาห์ 5–6) ✅ |
+| 10 | โค้ด | Notifications API และเติม notify ให้ครบทุกเหตุการณ์ · ฟีเจอร์ตามข้อ 14 (เช็กอิน, สถิติร้าน, ยกเลิกระงับ, ข้อมูลเสริม) ✅ |
+| 11 | AWS | **สร้าง resource ชุด `dev` ใน Console** (หัวข้อ 3) + อัปโหลด zip, ทดสอบเรื่องในข้อ 10.2, race test, เชื่อม frontend, แก้บั๊ก |
+| 12 | AWS | สร้างชุด `prod`, seed ข้อมูลเดโม, เอกสาร API |
 
 ---
 

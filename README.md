@@ -155,9 +155,9 @@ ID ของ resource ชุด dev ที่สร้างจริงอย�
 
 ## ทีม
 
-| สมาชิก | รหัส | หน้าที่หลัก |
-|---|---|---|
-| นายกิตติพิชญ์ หิรัญวงศ์ | 66070018 | Cloud Infrastructure (Cognito, S3, Lambda, API Gateway, Amplify, Deploy) |
-| นายปณวัฒน์ ธรรมเจริญ | 66070113 | Backend: Booking flow, DynamoDB transaction, EventBridge |
-| นายสรวิชญ์ กาญจนสันติศักดิ์ | 66070199 | Backend: Event/Lot API, Admin API, Notification |
-| นางสาวอิสรีย์ แม้นถาวรสิริ | 66070323 | Frontend (React + Vite), UI/UX, เชื่อมต่อ API และ Cognito |
+| สมาชิก | รหัส |
+|---|---|
+| นายกิตติพิชญ์ หิรัญวงศ์ | 66070018 |
+| นายปณวัฒน์ ธรรมเจริญ | 66070113 |
+| นายสรวิชญ์ กาญจนสันติศักดิ์ | 66070199 |
+| นางสาวอิสรีย์ แม้นถาวรสิริ | 66070323 |
