@@ -6,11 +6,9 @@ export const SITE = {
   supportEmail: 'help@bookmybooth.example',
 }
 
-/**
- * ปุ่มบัญชีเดโมบนเว็บที่ host (ต้องตรงกับ DEMO_ACCOUNTS ใน Backend/scripts/seed.py)
- * ไม่มี Admin เพราะรหัสเดโมเปิดเผยในหน้าเว็บ Admin ใช้รหัสแยก (ADMIN_SEED_PASSWORD) แล้วพิมพ์เอง
- */
+/** บัญชีเดโมที่ Backend/scripts/seed.py สร้าง (ต้องตรงกับ DEMO_ACCOUNTS ในสคริปต์) */
 export const DEMO_ACCOUNTS = [
+  { email: 'admin@bookmybooth.test', role: 'ADMIN' },
   { email: 'organizer@bookmybooth.test', role: 'ORGANIZER' },
   { email: 'seller@bookmybooth.test', role: 'SELLER' },
 ] as const

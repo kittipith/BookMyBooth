@@ -347,7 +347,6 @@
 
 | วันที่ | เรื่อง |
 |---|---|
-| 2026-10-28 | Admin ปลอดภัยขึ้น: ปุ่มเดโมบนเว็บที่ host เหลือผู้ขาย/ผู้จัดงาน · `seed.py` รับ `ADMIN_SEED_PASSWORD` แยกรหัส Admin (+ เทสต์) · AWS-SETUP 8.1, 9.2 วิธีตั้ง/เปลี่ยนรหัส Admin |
 | 2026-10-28 | ปุ่มบัญชีเดโมบนเว็บที่ host: ตั้ง `VITE_DEMO_PASSWORD` (= `SEED_PASSWORD`) แล้วโหมด cognito แสดงปุ่ม 3 บทบาท (`DevAccountPicker`, `DEMO_ACCOUNTS` ใน `data/settings.ts`) |
 | 2026-10-28 | เขียน `AWS-SETUP.md` ใหม่แบบละเอียด: ก่อนเริ่ม (ไม่ต้องใช้ VPN/VPC, ห้ามผูก VPC ให้ Lambda, เครื่องมือ, เปิด Lab, ใบจดค่า), ขั้นตอนใน Console ทีละช่อง, ทดสอบหลังแต่ละขั้น, Amplify 2 ทาง (GitHub / Deploy without Git) + `amplify.yml` + rewrite + `VITE_AUTH_MODE=cognito`, credentials ของ Lab สำหรับ seed, race test · เพิ่ม `scripts/race_test.py` (ผ่านกับ API จำลอง) · route เรียงเลขใหม่ 1–32 |
 | 2026-10-28 | หน้าเว็บเลิกบอกว่า "ระบบคืนเงินภายใน 3 วันทำการ" เปลี่ยนเป็นผู้จัดงานคืนเงินเองนอกระบบ ตาม scope (`POLICY.refundNote` แทน `refundBusinessDays`) |

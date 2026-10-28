@@ -456,7 +456,7 @@ Vite อ่านค่า `VITE_*` **ตอน build** (ฝังลงใน�
 | `VITE_USER_POOL_ID` | User Pool ID ข้อ 4 |
 | `VITE_USER_POOL_CLIENT_ID` | Client ID ข้อ 4 |
 | `VITE_REGION` | `us-east-1` |
-| `VITE_DEMO_PASSWORD` | (ไม่บังคับ) รหัสเดียวกับ `SEED_PASSWORD` ข้อ 9 → หน้าเข้าสู่ระบบแสดงปุ่มบัญชีเดโมผู้ขายและผู้จัดงาน (ไม่มี Admin) · ⚠️ ทุกคนเห็นรหัสนี้ได้ ใช้กับบัญชีเดโมเท่านั้น ไม่ใส่ = ไม่มีปุ่ม · Admin ต้องใช้รหัสแยก (`ADMIN_SEED_PASSWORD` ข้อ 9.2) |
+| `VITE_DEMO_PASSWORD` | (ไม่บังคับ) รหัสเดียวกับ `SEED_PASSWORD` ข้อ 9 → หน้าเข้าสู่ระบบแสดงปุ่มบัญชีเดโม 3 บทบาท · ⚠️ ทุกคนเห็นรหัสนี้ได้ (รวม Admin เดโม) ใช้กับบัญชีเดโมเท่านั้น ไม่ใส่ = ไม่มีปุ่ม |
 
 ### 8.2 สร้าง app (เลือกทางใดทางหนึ่ง)
 ค้นหา **AWS Amplify** → **Create new app** (หรือ **Deploy an app**)
@@ -553,14 +553,10 @@ PowerShell:
 cd Backend
 .venv\Scripts\Activate.ps1
 $env:SEED_PASSWORD = "Demo1234"
-$env:ADMIN_SEED_PASSWORD = "<รหัส Admin ที่ยาวและเดายาก>"
 python scripts/seed.py --user-pool-id us-east-1_xxxxxxxxx --stage dev
 ```
-Git Bash: `SEED_PASSWORD=Demo1234 ADMIN_SEED_PASSWORD='<รหัส Admin>' python scripts/seed.py --user-pool-id us-east-1_xxxxxxxxx --stage dev`
-- `SEED_PASSWORD` = รหัสของผู้ขายและผู้จัดงานเดโม (ใช้เป็น `VITE_DEMO_PASSWORD` ได้) · `ADMIN_SEED_PASSWORD` = รหัสของ Admin **ห้ามใช้ค่าเดียวกัน** และห้ามใส่ในหน้าเว็บ ไม่ตั้ง = Admin ใช้ `SEED_PASSWORD`
-- รันซ้ำทุกครั้งต้องตั้ง `ADMIN_SEED_PASSWORD` ด้วย ไม่งั้นรหัส Admin จะกลับไปเป็น `SEED_PASSWORD`
-- รหัสผ่านต้องผ่าน password policy (ยาว ≥ 8 มีตัวเล็ก + ตัวเลข) และ **อย่า commit หรือส่งรหัสผ่านในแชต** เก็บไว้ในตัวจัดการรหัสผ่านของทีม
-- เปลี่ยนรหัส Admin อย่างเดียวโดยไม่รัน seed: CloudShell → `aws cognito-idp admin-set-user-password --user-pool-id us-east-1_xxxxxxxxx --username admin@bookmybooth.test --password '<รหัสใหม่>' --permanent`
+Git Bash: `SEED_PASSWORD=Demo1234 python scripts/seed.py --user-pool-id us-east-1_xxxxxxxxx --stage dev`
+- รหัสผ่านต้องผ่าน password policy (ยาว ≥ 8 มีตัวเล็ก + ตัวเลข) และ **อย่า commit** รหัสผ่านลงไฟล์ใด ๆ · ใช้ค่าเดียวกันเป็น `VITE_DEMO_PASSWORD` (ข้อ 8.1) ได้
 - ตรวจ: DynamoDB → `bookmybooth-dev-users` → **Explore table items** ต้องเห็น 3 บัญชี · `bookmybooth-dev-events` มี `demo-event` · Cognito → Users มี 3 คน และอยู่ใน group ตามบทบาท
 
 ---
