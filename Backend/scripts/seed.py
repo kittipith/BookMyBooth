@@ -1,7 +1,8 @@
 """สร้างบัญชีเดโม admin / organizer / seller และงานตัวอย่าง 1 งาน (PLAN หัวข้อ 5.4)
 
 รันหลังสร้าง resource ใน Console แล้ว (สัปดาห์ 11) ด้วย credentials ของ Learner Lab
-รหัสผ่านอ่านจาก env SEED_PASSWORD ไม่เขียนลงไฟล์ รันซ้ำได้ (บัญชีที่มีแล้วจะถูกอัปเดต
+รหัสผ่านอ่านจาก env SEED_PASSWORD (Admin ใช้ ADMIN_SEED_PASSWORD ถ้าตั้งไว้) ไม่เขียนลงไฟล์
+รันซ้ำได้ (บัญชีที่มีแล้วจะถูกอัปเดต
 ส่วนงานและล็อกตัวอย่างที่มีแล้วจะไม่ถูกเขียนทับ)
 
     SEED_PASSWORD='...' python scripts/seed.py --user-pool-id us-east-1_xxxx --stage dev
@@ -75,13 +76,19 @@ def _ensure_cognito_user(cognito, pool_id: str, account: DemoAccount) -> tuple[s
     return user["Username"], sub
 
 
-def seed_accounts(*, cognito, users_table, pool_id: str, password: str) -> list[dict]:
+def seed_accounts(
+    *, cognito, users_table, pool_id: str, password: str, admin_password: str | None = None
+) -> list[dict]:
+    """admin_password: รหัสของ Admin แยกจากบัญชีเดโมอื่น (ไม่ใส่ = ใช้ password เดียวกัน)"""
     now = clock.now()
     seeded = []
     for account in DEMO_ACCOUNTS:
         username, sub = _ensure_cognito_user(cognito, pool_id, account)
+        own_password = (
+            admin_password if account.role == users.ADMIN and admin_password else password
+        )
         cognito.admin_set_user_password(
-            UserPoolId=pool_id, Username=username, Password=password, Permanent=True
+            UserPoolId=pool_id, Username=username, Password=own_password, Permanent=True
         )
         cognito.admin_add_user_to_group(
             UserPoolId=pool_id, Username=username, GroupName=users.GROUP_OF_ROLE[account.role]
@@ -194,6 +201,8 @@ def main() -> None:
         users_table=table("users"),
         pool_id=args.user_pool_id,
         password=password,
+        # หน้าเว็บที่ host แสดง SEED_PASSWORD ให้ทุกคนเห็น (VITE_DEMO_PASSWORD) Admin จึงควรมีรหัสแยก
+        admin_password=os.environ.get("ADMIN_SEED_PASSWORD"),
     )
     for item in seeded:
         print(f"{item['role']:<10} {item['email']}")

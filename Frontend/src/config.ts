@@ -17,4 +17,9 @@ export const config = {
   userPoolId: import.meta.env.VITE_USER_POOL_ID ?? '',
   userPoolClientId: import.meta.env.VITE_USER_POOL_CLIENT_ID ?? '',
   region: import.meta.env.VITE_REGION ?? 'us-east-1',
+  /**
+   * รหัสผ่านบัญชีเดโมจาก scripts/seed.py (SEED_PASSWORD) ใส่แล้วหน้าเข้าสู่ระบบแสดงปุ่มบัญชีเดโมในโหมด cognito ด้วย
+   * ⚠️ ค่านี้ฝังอยู่ในไฟล์ JS ที่ทุกคนเปิดดูได้ ใช้กับบัญชีเดโมเท่านั้น
+   */
+  demoPassword: import.meta.env.VITE_DEMO_PASSWORD ?? '',
 } as const

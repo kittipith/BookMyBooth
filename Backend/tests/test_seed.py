@@ -47,6 +47,29 @@ def test_seed_event_is_open_with_lots(user_pool):
     assert {lot["zoneId"] for lot in stored} == {"A", "B"}
 
 
+def test_admin_gets_own_password(user_pool):
+    client = boto3.client("cognito-idp")
+    passwords = {}
+    real_set = client.admin_set_user_password
+
+    def record(**kwargs):
+        passwords[kwargs["Username"]] = kwargs["Password"]
+        return real_set(**kwargs)
+
+    client.admin_set_user_password = record
+    seeded = seed_accounts(
+        cognito=client,
+        users_table=db.table("users"),
+        pool_id=user_pool,
+        password="Passw0rd!",
+        admin_password="Adm1nOnly!",
+    )
+
+    by_role = {item["role"]: passwords[item["username"]] for item in seeded}
+    assert by_role[users.ADMIN] == "Adm1nOnly!"
+    assert by_role[users.SELLER] == by_role[users.ORGANIZER] == "Passw0rd!"
+
+
 def test_seed_is_rerunnable(user_pool):
     first = run_seed(user_pool)
     second = run_seed(user_pool)

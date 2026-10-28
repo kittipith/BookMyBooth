@@ -14,7 +14,7 @@ interface LoginFormProps {
 }
 
 export default function LoginForm({ onRegister, onForgot, onNeedVerify }: LoginFormProps) {
-  const { login, closeLogin, authMode } = useAuth()
+  const { login, closeLogin } = useAuth()
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -40,15 +40,14 @@ export default function LoginForm({ onRegister, onForgot, onNeedVerify }: LoginF
 
   return (
     <form onSubmit={onSubmit} noValidate className="mt-5">
-      {authMode === 'dev' && (
-        <DevAccountPicker
-          onPick={(account) => {
-            setEmail(account.email)
-            setPassword(account.password)
-            setError('')
-          }}
-        />
-      )}
+      {/* แสดงเองเมื่อมีบัญชีเดโม (โหมด dev หรือตั้ง VITE_DEMO_PASSWORD) */}
+      <DevAccountPicker
+        onPick={(account) => {
+          setEmail(account.email)
+          setPassword(account.password)
+          setError('')
+        }}
+      />
       <label className="block">
         <span className="text-sm font-semibold">อีเมล</span>
         <input
