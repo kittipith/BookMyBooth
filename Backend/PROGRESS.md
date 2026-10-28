@@ -20,7 +20,7 @@
 | 7–8 | จอง, สลิป, หมดเวลาจอง | ปณวัฒน์ | ✅ |
 | 9 | อนุมัติ / ย้าย / ปฏิเสธ / ยกเลิก, summary | ปณวัฒน์ | ✅ |
 | 10 | Notifications + ฟีเจอร์ตามข้อ 14 | สรวิชญ์ | ✅ |
-| 11 | Deploy `dev` ครั้งแรก, integration/race test, เชื่อม frontend, แก้บั๊ก | ทุกคน | ⬜ |
+| 11 | Deploy `dev` ครั้งแรก, integration/race test, เชื่อม frontend, แก้บั๊ก | ทุกคน | ✅ |
 | 12 | Deploy prod, seed เดโม, เอกสาร API | กิตติพิชญ์ | ⬜ |
 
 ---
@@ -121,7 +121,7 @@
 | 6 | ตรวจการจอง หน้างาน สถิติ | ✅ |
 | 7 | Admin และแจ้งเตือน | ✅ |
 | 8 | เก็บกวาด store/seed เดิม | ✅ |
-| 9 | สลับไป AWS (สัปดาห์ 11) | ⬜ |
+| 9 | สลับไป AWS (สัปดาห์ 11) | ✅ |
 
 ### เฟส 0 ✅
 - [x] B1 `scripts/local_api.py`: moto server mode (`ThreadedMotoServer`) + ตาราง/bucket+CORS/user pool+groups + seed บัญชีเดโมและ `demo-event` · route ตาม AWS-SETUP 6.1 → event HTTP API v2 → `lambda_handler` จริง · `Bearer dev.<userId>` → claims (group จาก Cognito จำลอง) · 401/404 แบบ API Gateway · CORS `localhost:5173` · `/_dev/accounts`, `sign-up`, `confirm` (รัน PostConfirmation จริง), `sign-in` (ตรวจรหัสผ่านกับ Cognito จำลอง), `expire` (โหมดกวาด)
@@ -152,7 +152,7 @@
 - [x] ชั่วคราวถึงเฟส 8: `syncProfile` คัดลอก `/me` ลงร้าน/ผู้จัดงานในข้อมูลจำลอง (id = userId) + `useMyShop`/`useOrganizerData` fallback จาก `/me` (`services/profileBridge.ts`) — หน้าที่ยังใช้ข้อมูลจำลองไม่พัง แต่บัญชีจาก API ยังไม่เห็นงาน/การจองเดโมเดิม
 - [x] ทดสอบในเบราว์เซอร์กับ API จำลอง: สมัครผู้ขาย → ยืนยัน → แก้โปรไฟล์ → รีเฟรชยังล็อกอิน → ออกจากระบบ · ใช้บัญชีผู้ขายเข้าหน้าผู้จัดงาน → ข้อความบทบาทไม่ตรง · สมัครผู้จัดงาน → หน้ารออนุมัติ → Admin อนุมัติ → ตรวจสถานะ → เข้าแดชบอร์ด → บันทึกบัญชีรับโอน · ถูกระงับระหว่างใช้งาน → หลุดทันที / ล็อกอินซ้ำไม่ได้ · ลืมรหัสผ่าน
 - [x] `npm run build` + `lint` ผ่าน · pytest 152 ผ่าน, ruff ผ่าน
-- [ ] โหมด cognito ยังไม่ได้ทดสอบกับ Cognito จริง (เฟส 9)
+- [x] โหมด cognito ทดสอบกับ Cognito จริงแล้ว (เฟส 9, 2026-10-28)
 
 ### เฟส 3 ✅
 - [x] `api/events.ts` (`GET /events`, `/events/{id}`, `/events/{id}/lots`), `eventFromDto` → type ใหม่ `PublicEvent` (ไม่มี `days`/`surcharge`/`lotState` — F11) + `LotStates` (สถานะล็อกทั้งงานตามรหัส)
@@ -223,7 +223,7 @@
 - [x] `main.tsx` ลบ key `bookmybooth-data-v1` / `bookmybooth-session` ที่ค้างใน `localStorage`
 - [x] `npm run build` + `lint` ผ่าน · ไม่มี import จาก `data/*` ที่เป็นข้อมูลจำลองเหลือ · เปิดหน้า Admin และการจองของผู้ขายกับ API จำลองได้
 - [x] ไล่ checklist INTEGRATION-PLAN หัวข้อ 6 ครบ 11 ข้อกับ API จำลอง (2026-10-28) ผ่านทุกข้อ · หมายเหตุ: ข้อ 8 กรณีก่อนวันงานทดสอบผ่าน API (`409 NOT_EVENT_DAY`) · ข้อ 5 ทดสอบ PNG + PDF + ไฟล์ 6 MB ยังไม่ได้ลอง JPG · การจองชน (ข้อ 4) ใช้การจองผ่าน API ของผู้ขายเดโมแย่งล็อกก่อนกดส่ง
-- [ ] ไล่ checklist หัวข้อ 6 ซ้ำกับ AWS (เฟส 9)
+- [x] ไล่ checklist หัวข้อ 6 ซ้ำกับ AWS (เฟส 9, 2026-10-28)
 
 ### D7 — 1 การจอง = 1 ชุด ✅ (2026-10-28)
 - [x] `domain/booking`: `approve_items` / `release_items` รับทั้งชุด (โควตา −N update เดียว), `check_in_items`, `FINAL`
@@ -232,37 +232,41 @@
 - [x] เทสต์ใหม่ 9 ตัว (ย้ายบางล็อก, แจ้งเตือนครั้งเดียว, ย้ายซ้ำปลายทาง, ปฏิเสธ/ยกเลิก/เช็กอินทั้งชุด, ชุดที่บางล็อกจบแล้ว, สถิตินับตามชุด) · แก้ test_flow — pytest 161 ผ่าน, ruff ผ่าน
 - [x] Frontend (F35): `groupBookings` + type `BookingGroup` · การจองของฉัน 1 ตั๋วต่อชุด + ยกเลิกทั้งชุด · หน้าตรวจการจอง/ภาพรวม/เช็กอิน 1 แถวต่อชุด · drawer เลือกล็อกที่จะย้ายในชุด + ผังย่อไฮไลต์ทุกล็อก · tsc + lint ผ่าน
 - [x] ทดสอบในเบราว์เซอร์กับ API จำลอง: ตั๋ว "A01, A02 · 2 ล็อก · สลิปเดียว ฿1,000" → ผู้จัดงานย้าย A02 → A05 แล้วอนุมัติทั้งชุด (A01, A05 BOOKED, A02 ว่าง) → ไม่อนุมัติชุด B01, B02 (ว่างทั้งคู่) → ผู้ขายยกเลิกชุด B03, B04 · มือถือ 375 px ไม่ล้นจอ
-- [ ] ยังไม่ได้กดในเบราว์เซอร์: เช็กอินทั้งชุด (ไม่มีงานที่จัดวันนี้) และผู้จัดงานยกเลิกหลังอนุมัติ — มีเทสต์ backend แล้ว
+- [x] เช็กอินทั้งชุด และผู้จัดงานยกเลิกหลังอนุมัติ ทดสอบในเบราว์เซอร์บน AWS แล้ว (2026-10-28)
 - [x] หมดเวลาทั้งชุด: `booking_ops.expire` หมดเวลาทุกล็อกในชุดที่เลยเวลาใน transaction เดียว + แจ้งเตือนครั้งเดียว (ใช้ทั้ง Scheduler, โหมดกวาด และ fallback) · `group_members` ย้ายไป `booking_ops` · เทสต์ใหม่ 2 ตัว — pytest 163 ผ่าน
 - [x] F36 ไอคอนแจ้งเตือนเป็น SVG (`lucide-react`) แทนอิโมจิ ตรวจในเบราว์เซอร์ทั้งกระดิ่งผู้ขายและผู้จัดงาน · tsc + lint ผ่าน
 
 ## สัปดาห์ 11 — ขึ้น AWS และทดสอบ (PLAN 3, 10.2, 11.2)
-> ทำตาม [AWS-SETUP.md](../AWS-SETUP.md) ทีละข้อ
-- [ ] สร้าง DynamoDB 5 ตาราง + GSI + TTL (PLAN 3.1)
-- [ ] สร้าง S3 bucket + CORS (PLAN 3.2)
-- [ ] สร้าง Cognito User Pool, App client, Groups (PLAN 3.3)
-- [ ] `python scripts/build_zip.py` แล้วสร้าง Lambda 6 ตัว + layer + env + อัปโหลด zip (PLAN 3.4)
-- [ ] ตั้ง PostConfirmation trigger (PLAN 3.3)
-- [ ] สร้าง HTTP API + CORS + JWT authorizer + routes + throttling (PLAN 3.5)
-- [ ] เปิด `<Invoke URL>/health` ได้ `{"status":"ok"}`
-- [ ] จดชื่อ/ID ของ resource ที่สร้างจริงไว้ในตารางด้านล่าง
-- [ ] รัน `scripts/seed.py` กับชุด `dev`
-- [ ] PostConfirmation trigger ทำงานจริง และตรวจรูปแบบ `cognito:groups` ใน claims
-- [ ] Lambda สร้าง schedule `at(...)` ได้ด้วย LabRole (`iam:PassRole`) ถ้าไม่ได้ เพิ่ม rule `rate(5 minutes)`
-- [ ] ทดสอบหมดเวลาด้วย `slipDeadlineHours` สั้น
-- [ ] อัปโหลดสลิปจากเบราว์เซอร์ผ่าน CORS ของ bucket
-- [ ] Integration test flow ครบกับชุด `dev`
-- [ ] `scripts/race_test.py`: 5 request พร้อมกัน → `201` × 1, `409` × 4 (สคริปต์เขียนแล้ว 2026-10-28 ผ่านกับ API จำลอง · รอรันกับ AWS ตาม AWS-SETUP 11.1)
-- [ ] เชื่อมกับ frontend จริงและแก้บั๊ก
+> ทำตาม [AWS-SETUP.md](../AWS-SETUP.md) ทีละข้อ · ขึ้นชุด `dev` แล้ว 2026-10-28 ทีมยืนยันว่าเว็บใช้งานได้
+- [x] สร้าง DynamoDB 5 ตาราง + GSI + TTL (PLAN 3.1)
+- [x] สร้าง S3 bucket + CORS (PLAN 3.2)
+- [x] สร้าง Cognito User Pool, App client, Groups (PLAN 3.3)
+- [x] `python scripts/build_zip.py` แล้วสร้าง Lambda 6 ตัว + layer + env + อัปโหลด zip (PLAN 3.4)
+- [x] ตั้ง PostConfirmation trigger (PLAN 3.3)
+- [x] สร้าง HTTP API + CORS + JWT authorizer + routes + throttling (PLAN 3.5)
+- [x] เปิด `<Invoke URL>/health` ได้ `{"status":"ok"}` · `/events` มี `demo-event` · `/me` ไม่มี token → 401 · CORS ตอบโดเมน Amplify (ตรวจ 2026-10-28)
+- [x] จดชื่อ/ID ของ resource ที่สร้างจริงไว้ในตารางด้านล่าง (Account ID / bucket ยังไม่ได้กรอก)
+- [x] รัน `scripts/seed.py` กับชุด `dev`
+- [x] Frontend บน Amplify Hosting (`VITE_AUTH_MODE=cognito`) + ปุ่มบัญชีเดโม (`VITE_DEMO_PASSWORD`)
+- [x] Amplify rewrite ตั้งแล้ว (`/<*>` → `/index.html` แบบ `404-200`) refresh หน้าอื่นได้ หน้าเว็บโหลดปกติ · เหลือแค่ status เป็น 301 → 404 (ไม่กระทบผู้ใช้) ถ้าอยากได้ 200 ใช้กฎ regex ใน AWS-SETUP 8.3
+- [x] PostConfirmation trigger ทำงานจริงกับการสมัครใหม่ (OTP ทางอีเมล) และ `cognito:groups` ใน claims ใช้ได้ (ทีมทดสอบ 2026-10-28)
+- [x] Lambda สร้าง schedule `at(...)` ได้ด้วย LabRole (`iam:PassRole` ผ่าน) ไม่ต้องเพิ่ม rule `rate(5 minutes)`
+- [x] ทดสอบหมดเวลาด้วย `slipDeadlineMinutes = 2` — ล็อกกลับเป็นว่างทั้งชุด (ช้ากว่ากำหนดเล็กน้อย ยอมรับได้)
+- [x] อัปโหลดสลิปจากเบราว์เซอร์ผ่าน CORS ของ bucket
+- [x] Integration test flow ครบกับชุด `dev` (INTEGRATION-PLAN หัวข้อ 6 ซ้ำบน AWS)
+- [x] `scripts/race_test.py`: 5 request พร้อมกัน → `201` × 1, `409` × 4
+- [x] เช็กอินทั้งชุด และผู้จัดงานยกเลิกหลังอนุมัติ ในเบราว์เซอร์
+- [x] เชื่อมกับ frontend จริง (โหมด cognito)
 
 ### Resource ที่สร้างจริง (ชุด dev)
 | ส่วน | ชื่อ / ID |
 |---|---|
 | Account ID | |
 | S3 bucket | |
-| User Pool ID | |
-| App client ID | |
-| HTTP API Invoke URL | |
+| User Pool ID | `us-east-1_6PVw18Soo` |
+| App client ID | `5d3r4b1c9b2mi8cs5u1sjcc3kp` |
+| HTTP API Invoke URL | `https://4aoakgocrd.execute-api.us-east-1.amazonaws.com` |
+| Amplify (เว็บ) | `https://main.d1tvp6kz9uh3dp.amplifyapp.com` |
 
 ## สัปดาห์ 12 — ส่งงาน
 - [ ] สร้างชุด `prod` ใน Console บนบัญชีหลัก (PLAN หัวข้อ 3)
@@ -304,7 +308,7 @@
 
 | # | เรื่อง | สถานะ |
 |---|---|---|
-| F1 | เชื่อม Cognito (`aws-amplify/auth`) แทนบัญชีจำลอง | 🟨 `src/auth/cognitoAdapter.ts` เขียนแล้ว ทดสอบจริงตอนเฟส 9 (โหมด dev ผ่านแล้ว) |
+| F1 | เชื่อม Cognito (`aws-amplify/auth`) แทนบัญชีจำลอง | ✅ ใช้งานจริงบน Amplify กับ Cognito ชุด dev แล้ว (2026-10-28) |
 | F2 | แนบ `Authorization: Bearer <accessToken>` | ✅ |
 | F3 | อ่าน error `{ error: { code, message, details } }` | 🟨 `ApiError` + toast อัตโนมัติพร้อม (เฟส 1) หน้าจอใช้จริงตามเฟส |
 | F4 | map ค่าสถานะตัวพิมพ์ใหญ่ | ✅ |
@@ -347,6 +351,8 @@
 
 | วันที่ | เรื่อง |
 |---|---|
+| 2026-10-28 | สัปดาห์ 11 ✅ ทีมทดสอบบน AWS ผ่านครบ: สมัครใหม่ + PostConfirmation, Scheduler (`iam:PassRole` ผ่าน), หมดเวลา 2 นาที (ช้าเล็กน้อย), อัปโหลดสลิปผ่าน CORS ของ S3, race test 201 × 1 / 409 × 4, checklist INTEGRATION-PLAN หัวข้อ 6, เช็กอิน/ยกเลิกทั้งชุด · เฟส 9 ✅ |
+| 2026-10-28 | ขึ้นชุด `dev` บน AWS + Amplify Hosting แล้ว ทีมยืนยันว่าใช้งานได้ · ตรวจ `/health`, `/events`, 401, CORS ผ่าน · rewrite ของ Amplify ตั้งแล้ว (`404-200`) refresh หน้าอื่นได้ · กรอก ID ของ resource · F1 ✅ · ปรับ scope หัวข้อ 3.1, 5, 10 |
 | 2026-10-28 | ปุ่มบัญชีเดโมบนเว็บที่ host: ตั้ง `VITE_DEMO_PASSWORD` (= `SEED_PASSWORD`) แล้วโหมด cognito แสดงปุ่ม 3 บทบาท (`DevAccountPicker`, `DEMO_ACCOUNTS` ใน `data/settings.ts`) |
 | 2026-10-28 | เขียน `AWS-SETUP.md` ใหม่แบบละเอียด: ก่อนเริ่ม (ไม่ต้องใช้ VPN/VPC, ห้ามผูก VPC ให้ Lambda, เครื่องมือ, เปิด Lab, ใบจดค่า), ขั้นตอนใน Console ทีละช่อง, ทดสอบหลังแต่ละขั้น, Amplify 2 ทาง (GitHub / Deploy without Git) + `amplify.yml` + rewrite + `VITE_AUTH_MODE=cognito`, credentials ของ Lab สำหรับ seed, race test · เพิ่ม `scripts/race_test.py` (ผ่านกับ API จำลอง) · route เรียงเลขใหม่ 1–32 |
 | 2026-10-28 | หน้าเว็บเลิกบอกว่า "ระบบคืนเงินภายใน 3 วันทำการ" เปลี่ยนเป็นผู้จัดงานคืนเงินเองนอกระบบ ตาม scope (`POLICY.refundNote` แทน `refundBusinessDays`) |
